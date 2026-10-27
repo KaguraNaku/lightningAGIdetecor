@@ -29,20 +29,18 @@ class FeatureMapping(nn.Module):
             "basis",
             torch.zeros(layers_count, input_dim, output_dim, dtype=torch.float32),
         )
-        self.register_buffer("layer_mask", torch.ones(layers_count, dtype=torch.bool))
+        self.register_buffer(
+            "selected_layers", torch.arange(layers_count, dtype=torch.int64)
+        )
 
         self.layers_count = layers_count
         self.input_dim = input_dim
         self.output_dim = output_dim
 
-    @property
-    def selected_layers(self):
-        return self.layer_mask.nonzero(as_tuple=True)[0]
-
     @torch.no_grad()
     def select_layers(self, layers):
         """Save selected layer identities; retain their original ascending order."""
-        layers = torch.as_tensor(layers, device=self.layer_mask.device)
+        layers = torch.as_tensor(layers, device=self.selected_layers.device)
         if layers.ndim != 1 or not len(layers):
             raise ValueError("layers must be a nonempty 1D sequence")
         if layers.dtype not in (torch.int32, torch.int64):
@@ -51,8 +49,7 @@ class FeatureMapping(nn.Module):
             raise ValueError("layer indices are out of range")
         if len(layers.unique()) != len(layers):
             raise ValueError("layer indices must be unique")
-        self.layer_mask.zero_()
-        self.layer_mask[layers.long()] = True
+        self.selected_layers = layers.long().sort().values.clone()
         return self
 
     def _prepare_features(self, features):

@@ -58,6 +58,30 @@ def build_detector(backbone, config, *, selected_layers):
     return LightningDetector(backbone, mapping, _make_classifier(mapping, config))
 
 
+def load_detector(backbone, config, state_dict):
+    """Restore a fresh detector and verify its mapping fingerprint before use.
+
+    Pass a freshly constructed encoder; loading restores its weights as well.
+    Earlier mask-based/version-1 checkpoints require explicit migration.
+    """
+    if "mapping.selected_layers" not in state_dict:
+        raise ValueError("checkpoint must contain mapping.selected_layers")
+    layers = state_dict["mapping.selected_layers"]
+    detector = build_detector(backbone, config, selected_layers=layers)
+    expected_layers = detector.mapping.selected_layers.clone()
+    detector.load_state_dict(state_dict)
+    if not torch.equal(detector.mapping.selected_layers, expected_layers):
+        raise ValueError("saved layer indices must be in ascending order")
+    if (
+        int(detector.classifier.sample_count)
+        and mapping_id(detector) != detector.classifier.mapping_id
+    ):
+        raise ValueError(
+            "saved classifier fingerprint does not match the restored mapping"
+        )
+    return detector
+
+
 @torch.no_grad()
 def calibrate(backbone, features, labels, config):
     """Return a new fitted detector using source-training features and labels.
@@ -94,7 +118,7 @@ def calibrate(backbone, features, labels, config):
     layers, _ = search_layers(
         features=projected.to(dtype=torch.float64),
         labels=labels.to(device=projected.device, dtype=torch.float64),
-        width=mapping.output_dim,
+        block_size=mapping.output_dim,
         topk=topk,
         ridge_lambda=config.get("search_ridge_lambda", 1.0),
     )
