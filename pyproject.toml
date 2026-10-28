@@ -10,16 +10,18 @@ requires-python = ">=3.10"
 dependencies = [
   "torch>=2", "transformers>=4.30", "numpy>=1.24", "scikit-learn>=1.3",
   "pyyaml>=6", "Pillow>=10", "albumentations>=1.3", "pyarrow>=14",
-  "opencv-python-headless>=4.8",
+  "opencv-python-headless>=4.8", "python-dotenv>=1.0",
 ]
 
 [project.scripts]
-lightning-calibrate = "lightning_detector.cli:calibrate_main"
-lightning-test = "lightning_detector.cli:test_main"
-lightning-layer-search = "lightning_detector.cli:search_main"
+prepare-data = "data.cli:prepare_main"
+check-data = "data.cli:check_main"
 
 [tool.setuptools.packages.find]
-include = ["lightning_detector*"]
+include = ["backbones*", "detectors*", "data*", "configs*"]
+
+[tool.setuptools.package-data]
+configs = ["*.yaml", "experiments/*.yaml"]
 
 [dependency-groups]
 dev = ["ruff>=0.15.17"]

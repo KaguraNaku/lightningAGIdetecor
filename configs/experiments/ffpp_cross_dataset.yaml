@@ -1,0 +1,20 @@
+# These manifests must be generated first. No image features are stored here.
+backbone_id: openai/clip-vit-large-patch14
+seed: 42
+inputs:
+  calibration:
+    dataset: FaceForensics++
+    manifest: ${MANIFEST_ROOT}/FaceForensics++-train-frames-8.jsonl
+    split: train
+    batch_size: 32
+    num_workers: 0
+    decode_error_patience: 10
+    shuffle: false
+  celeb_df_v2_test:
+    dataset: Celeb-DF-v2
+    manifest: ${MANIFEST_ROOT}/Celeb-DF-v2-test-frames-32.jsonl
+    split: test
+    batch_size: 32
+    num_workers: 0
+    decode_error_patience: 10
+    shuffle: false

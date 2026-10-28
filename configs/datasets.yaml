@@ -1,0 +1,92 @@
+# Root variables are resolved only for the dataset being used.
+datasets:
+  FaceForensics++:
+    root: ${FFPP_ROOT}
+    adapter: ffpp
+    compression: c23
+    # Standard FF++ manipulation methods. FaceShifter is held out below.
+    methods: [Deepfakes, Face2Face, FaceSwap, NeuralTextures]
+  FaceShifter:
+    root: ${FFPP_ROOT}
+    adapter: ffpp
+    compression: c23
+    methods: [FaceShifter]
+  Celeb-DF-v1:
+    root: ${CELEB_DF_V1_ROOT}
+    adapter: celeb_df
+  Celeb-DF-v2:
+    root: ${CELEB_DF_V2_ROOT}
+    adapter: celeb_df
+  OpenFake-v1:
+    root: ${OPENFAKE_V1_ROOT}
+    adapter: parquet
+    splits:
+      test: [test-*.parquet]
+    metadata_columns: [model, type]
+  OpenFake-v2:
+    root: ${OPENFAKE_V2_ROOT}
+    adapter: parquet
+    splits:
+      test: [test-*.parquet]
+    metadata_columns: [model, type]
+  OpenFake:
+    root: ${OPENFAKE_ROOT}
+    adapter: parquet
+    splits:
+      test: [test-*.parquet]
+    metadata_columns: [model, type]
+  DeepFakeDetection:
+    root: ${FFPP_ROOT}
+    adapter: directories
+    splits:
+      test:
+        protocol: all_available_actors_and_dfd_c23
+        groups:
+          - {pattern: original_sequences/actors/c23/frames/*, label: 0, category: actors}
+          - {pattern: manipulated_sequences/DeepFakeDetection/c23/frames/*, label: 1, category: DeepFakeDetection}
+  DFDC:
+    root: ${DFDC_ROOT}
+    adapter: dfdc
+    splits:
+      test: {metadata: test/metadata.json, frames: test/frames}
+  DFDCP:
+    root: ${DFDCP_ROOT}
+    adapter: directories
+    splits:
+      test:
+        protocol: all_available_preprocessed_videos
+        groups:
+          - {pattern: original_videos/frames/*, label: 0, category: original_videos}
+          - {pattern: method_A/frames/*, label: 1, category: method_A}
+          - {pattern: method_B/frames/*, label: 1, category: method_B}
+  UADFV:
+    root: ${UADFV_ROOT}
+    adapter: directories
+    splits:
+      test:
+        protocol: all_available_preprocessed_videos
+        groups:
+          - {pattern: real/frames/*, label: 0, category: real}
+          - {pattern: fake/frames/*, label: 1, category: fake}
+  WildDeepfake:
+    root: ${WILDDEEPFAKE_ROOT}
+    adapter: directories
+    splits:
+      test:
+        protocol: provided_real_test_and_fake_test
+        groups:
+          - {pattern: deepfake_in_the_wild/real_test/*/real/*, label: 0, category: real}
+          - {pattern: deepfake_in_the_wild/fake_test/*/fake/*, label: 1, category: fake}
+  UniversalFakeDetect:
+    root: ${UFD_ROOT}
+    adapter: universal
+    ignore_dirs: [ckpts]
+    splits: {train: train, test: test}
+  Tiny-GenImage:
+    root: ${TINY_GENIMAGE_ROOT}
+    adapter: parquet
+    splits:
+      train: [train-*.parquet]
+      val: [validation-*.parquet]
+    label_map: {'0': 0, '1': 1}
+    metadata_columns: [generator]
