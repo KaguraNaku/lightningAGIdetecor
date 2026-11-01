@@ -9,8 +9,10 @@ import importlib.metadata
 import json
 import logging
 import math
+import os
 from pathlib import Path
 import random
+import tempfile
 
 import numpy as np
 import torch
@@ -21,6 +23,21 @@ from engine.evaluate import coverage, evaluate
 from engine.runtime import atomic_save
 
 logger = logging.getLogger(__name__)
+
+
+def select_checkpoint(source, destination):
+    """Atomically retain an immutable snapshot without serializing it twice.
+
+    Later atomic replacement of last.pth leaves the selected inode unchanged.
+    Both paths belong to the same fit directory and filesystem.
+    """
+    destination = Path(destination)
+    with tempfile.TemporaryDirectory(
+        dir=destination.parent, prefix=".checkpoint-"
+    ) as directory:
+        pending = Path(directory) / "selected.pth"
+        os.link(source, pending)
+        os.replace(pending, destination)
 
 
 def integer(settings, key, default, minimum=1):
@@ -251,6 +268,10 @@ class ImageClassificationTrainer:
             loss, train_report = self.train_epoch(
                 loader, optimizer, scaler, runtime=runtime, output=training
             )
+            # Validation and serialized snapshots do not use parameter gradients.
+            # The next batch also starts with zero_grad; discard these tensors
+            # before the large model/optimizer checkpoint write.
+            optimizer.zero_grad(set_to_none=True)
             self.model.eval()
             validation = evaluate(
                 _Scorer(self.model),
@@ -301,13 +322,14 @@ class ImageClassificationTrainer:
             }
             atomic_save(output / "last.pth", snapshot, torch_format=True)
             if improved:
-                atomic_save(output / "best.pth", snapshot, torch_format=True)
+                select_checkpoint(output / "last.pth", output / "best.pth")
             del snapshot
             logger.info(
                 "Classification epoch %d loss %.6f %s %.6f", epoch, loss, monitor, value
             )
             if patience is not None and stale >= patience:
                 break
+        del optimizer, scaler
         selected = torch.load(
             output / "best.pth", weights_only=True, mmap=True, map_location="cpu"
         )
