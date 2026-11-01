@@ -132,7 +132,7 @@ class Xception(nn.Module):
         outputs = self.relu(self.bn1(self.conv1(images)))
         outputs = self.relu(self.bn2(self.conv2(outputs)))
         for index in range(1, 13):
-            if self.mode == "shallow_xception" and 5 <= index <= 11:
+            if self.mode == "shallow_xception" and 4 <= index <= 11:
                 continue
             outputs = getattr(self, f"block{index}")(outputs)
         outputs = self.relu(self.bn3(self.conv3(outputs)))

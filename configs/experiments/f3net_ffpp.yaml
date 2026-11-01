@@ -1,0 +1,54 @@
+# Local FAD-only F3Net with full Xception, four bands and dropout 0.5.
+# Fill local ImageNet init_weights. To train from scratch, remove it and set
+# initialization: random. Source training selects FF-NT; this FFPP manifest
+# and source-validation example does not reproduce the original protocol.
+version: 1
+seed: 1024
+runtime:
+  device: cpu
+  precision: fp32
+  allow_tf32: false
+  log_level: INFO
+  output_dir: outputs/f3net_ffpp
+model:
+  factory: detectors.f3net.experiment:create_task
+  mode: original
+  dropout: 0.5
+  augmentation: false
+  init_weights: /absolute/path/to/xception-b5690688.pth
+loader:
+  batch_size: 32
+  num_workers: 0
+  persistent_workers: false
+  shuffle: false
+inputs:
+  training:
+    dataset: FaceForensics++
+    split: train
+    manifest: ${MANIFEST_ROOT}/FaceForensics++-train-frames-32.jsonl
+    shuffle: true
+  validation:
+    dataset: FaceForensics++
+    split: val
+    manifest: ${MANIFEST_ROOT}/FaceForensics++-val-frames-32.jsonl
+  celeb_df_v2_test:
+    dataset: Celeb-DF-v2
+    split: test
+    manifest: ${MANIFEST_ROOT}/Celeb-DF-v2-test-frames-32.jsonl
+fit:
+  input: training
+  validation_input: validation
+  epochs: 10
+  patience: null
+  monitor: video.auc
+  optimizer: adam
+  learning_rate: 0.0002
+  weight_decay: 0.0005
+evaluation:
+  inputs:
+  - validation
+  - celeb_df_v2_test
+  threshold: 0.5
+  video_aggregation: mean
+  group_by:
+  - category
