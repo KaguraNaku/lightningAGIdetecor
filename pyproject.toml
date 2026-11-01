@@ -21,7 +21,7 @@ check-data = "data.cli:check_main"
 include = ["backbones*", "detectors*", "data*", "configs*", "engine*"]
 
 [tool.setuptools.package-data]
-configs = ["*.yaml", "experiments/*.yaml"]
+configs = ["*.yaml", "experiments/*.yaml", "migrations/*.json"]
 
 [dependency-groups]
 dev = ["ruff>=0.15.17"]

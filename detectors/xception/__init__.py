@@ -1,0 +1,1 @@
+"""Independent Xception adapter."""
