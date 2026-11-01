@@ -1,7 +1,8 @@
 """Whole-batch image classification with explicit source-validation policy.
 
-This trainer covers the plain CE classifiers only. It deliberately does not
-silently microbatch trainable BatchNorm models or replace method-specific losses.
+The default batch objective is plain CE. Method-owned subclasses may override
+compute_loss while retaining receipts, selection and checkpointing. Whole batches
+are retained: splitting changes BatchNorm and batch-coupled objectives.
 """
 
 import importlib.metadata
@@ -60,6 +61,12 @@ class ImageClassificationTrainer:
         self.model = model
         self.origin = origin or {}
         self.objective = objective if objective is not None else nn.CrossEntropyLoss()
+
+    def compute_loss(self, images, labels):
+        logits = self.model(images)
+        if logits.shape != (len(labels), 2):
+            raise ValueError("Plain classification requires (N, 2) logits")
+        return self.objective(logits, labels)
 
     def build_optimizer(self, settings):
         parameters = [p for p in self.model.parameters() if p.requires_grad]
@@ -145,10 +152,7 @@ class ImageClassificationTrainer:
                 images = batch["pixel_values"].to(runtime.device, non_blocking=True)
                 labels = batch["labels"].to(runtime.device, non_blocking=True)
                 with runtime.autocast():
-                    logits = self.model(images)
-                    if logits.shape != (count, 2):
-                        raise ValueError("Plain classification requires (N, 2) logits")
-                    loss = self.objective(logits, labels)
+                    loss = self.compute_loss(images, labels)
                 if loss.ndim or not torch.isfinite(loss):
                     raise ValueError("Nonfinite or nonscalar classification loss")
                 scaler.scale(loss).backward()
