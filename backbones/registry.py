@@ -5,6 +5,7 @@ stores an already available callable without importing other backends.
 """
 
 LOADERS = {
+    ("resnet34", "vision"): ("backbones.models.resnet34", "load_resnet34"),
     ("meso4", "vision"): ("backbones.models.meso", "load_meso4"),
     ("meso4Inception", "vision"): ("backbones.models.meso", "load_meso_inception4"),
     ("xception", "vision"): ("backbones.models.xception", "load_xception"),
