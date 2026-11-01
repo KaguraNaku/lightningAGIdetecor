@@ -1,0 +1,7 @@
+"""Project-local generic experiment entry point."""
+
+from engine.cli import main
+
+
+if __name__ == "__main__":
+    main()

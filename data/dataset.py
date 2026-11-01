@@ -33,6 +33,7 @@ class ManifestDataset(Dataset):
             raise ValueError("decode_error_patience must be a positive integer")
         self.decode_error_patience = decode_error_patience
         self.consecutive_decode_errors = 0
+        self.manifest_path = Path(manifest).resolve()
         self.header, self.records = read_manifest(manifest)
         read_metadata(manifest, self.header)
         self.settings = config.dataset(self.header["dataset"])

@@ -8,9 +8,9 @@ version = "0.1.0"
 description = ""
 requires-python = ">=3.10"
 dependencies = [
-  "torch>=2", "transformers>=4.30", "numpy>=1.24", "scikit-learn>=1.3",
-  "pyyaml>=6", "Pillow>=10", "albumentations>=1.3", "pyarrow>=14",
-  "opencv-python-headless>=4.8", "python-dotenv>=1.0",
+  "torch>=2.9.1", "transformers>=4.57.3", "numpy>=1.24", "scikit-learn>=1.3",
+  "pyyaml>=6", "Pillow>=10", "albumentations==1.3.1", "pyarrow>=14",
+  "opencv-python-headless==4.11.0.86", "python-dotenv>=1.0",
 ]
 
 [project.scripts]
@@ -18,7 +18,7 @@ prepare-data = "data.cli:prepare_main"
 check-data = "data.cli:check_main"
 
 [tool.setuptools.packages.find]
-include = ["backbones*", "detectors*", "data*", "configs*"]
+include = ["backbones*", "detectors*", "data*", "configs*", "engine*"]
 
 [tool.setuptools.package-data]
 configs = ["*.yaml", "experiments/*.yaml"]

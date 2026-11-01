@@ -1,20 +1,47 @@
-# These manifests must be generated first. No image features are stored here.
-backbone_id: openai/clip-vit-large-patch14
+# Prepare complete manifests first; raw data stays outside the checkout.
+version: 1
 seed: 42
+runtime:
+  device: cuda:0
+  precision: fp32
+  log_level: INFO
+  output_dir: outputs/ffpp_cross_dataset
+model:
+  # Other models supply their own module:factory adapter.
+  factory: detectors.lightning_detetcor.experiment:create_task
+  backbone_id: openai/clip-vit-large-patch14
+  output_dim: 64
+  eps: 1.0e-6
+  topk: 8
+  search_ridge_lambda: 1.0
+  ridge_lambda: 0.15
+loader:
+  batch_size: 32
+  num_workers: 0
+  pin_memory: true
+  prefetch_factor: 2
+  persistent_workers: false
+  decode_error_patience: 10
+  shuffle: false
 inputs:
   calibration:
     dataset: FaceForensics++
     manifest: ${MANIFEST_ROOT}/FaceForensics++-train-frames-8.jsonl
     split: train
-    batch_size: 32
-    num_workers: 0
-    decode_error_patience: 10
-    shuffle: false
+  validation:
+    dataset: FaceForensics++
+    manifest: ${MANIFEST_ROOT}/FaceForensics++-val-frames-32.jsonl
+    split: val
   celeb_df_v2_test:
     dataset: Celeb-DF-v2
     manifest: ${MANIFEST_ROOT}/Celeb-DF-v2-test-frames-32.jsonl
     split: test
-    batch_size: 32
-    num_workers: 0
-    decode_error_patience: 10
-    shuffle: false
+fit:
+  input: calibration
+  # Features and fitting temporaries; excludes backbone and decoder memory.
+  feature_memory_budget_gib: 8
+evaluation:
+  inputs: [validation, celeb_df_v2_test]
+  threshold: 0.0
+  video_aggregation: mean
+  group_by: [category]

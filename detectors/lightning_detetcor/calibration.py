@@ -96,6 +96,7 @@ def calibrate(backbone, features, labels, config):
         Source-training raw targets: real=0, fake=1. Both classes are required.
     config : dict
         Mapping settings, topk and search/final ridge regularization settings.
+        Optional selected_layers bypasses search; indices are zero-based.
 
     Returns
     -------
@@ -115,16 +116,20 @@ def calibrate(backbone, features, labels, config):
     mapping = _make_mapping(config, features.device)
     mapping.fit(features, labels)
     projected = mapping(features)
-    layers, _ = search_layers(
-        features=projected.to(dtype=torch.float64),
-        labels=labels.to(device=projected.device, dtype=torch.float64),
-        block_size=mapping.output_dim,
-        topk=topk,
-        ridge_lambda=config.get("search_ridge_lambda", 1.0),
-    )
+    layers = config.get("selected_layers")
+    if layers is None:
+        layers, _ = search_layers(
+            features=projected.to(dtype=torch.float64),
+            labels=labels.to(device=projected.device, dtype=torch.float64),
+            block_size=mapping.output_dim,
+            topk=topk,
+            ridge_lambda=config.get("search_ridge_lambda", 1.0),
+        )
+    # Explicit layers bypass search and use the mapping's index validation.
+    mapping.select_layers(layers)
+    layers = mapping.selected_layers.tolist()
     blocks = projected.reshape(len(projected), mapping.layers_count, mapping.output_dim)
     selected = blocks[:, layers, :].flatten(start_dim=1)
-    mapping.select_layers(layers)
     detector = LightningDetector(backbone, mapping, _make_classifier(mapping, config))
     detector.classifier.fit(selected, labels, mapping_id=mapping_id(detector))
     return detector
