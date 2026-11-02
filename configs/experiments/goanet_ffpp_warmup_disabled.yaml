@@ -1,0 +1,55 @@
+# Explicit source-supported warmup_epoch0 override; differs from original YAML.
+# Same canonical model/loss, active Adam1e-4 and one post-fit cosine step.
+# This is the controlled learning configuration used by workflow verification,
+# not a claim of reproducing the literal zero-LR default or historical results.
+version: 1
+seed: 1024
+runtime:
+  device: cpu
+  precision: fp32
+  allow_tf32: false
+  log_level: INFO
+  output_dir: outputs/goanet_ffpp_warmup_disabled
+model:
+  factory: detectors.goanet.experiment:create_task
+  source_variant: canonical_prior_guided
+  augmentation: true
+loader:
+  batch_size: 24
+  num_workers: 0
+  persistent_workers: false
+  shuffle: false
+inputs:
+  training:
+    dataset: FaceForensics++
+    split: train
+    manifest: ${MANIFEST_ROOT}/FaceForensics++-train-frames-8.jsonl
+    shuffle: true
+  validation:
+    dataset: FaceForensics++
+    split: val
+    manifest: ${MANIFEST_ROOT}/FaceForensics++-val-frames-8.jsonl
+    batch_size: 24
+  celeb_df_v2_test:
+    dataset: Celeb-DF-v2
+    split: test
+    manifest: ${MANIFEST_ROOT}/Celeb-DF-v2-test-frames-8.jsonl
+    batch_size: 24
+fit:
+  input: training
+  validation_input: validation
+  epochs: 11
+  patience: null
+  monitor: video.auc
+  optimizer: adam
+  learning_rate: 0.0001
+  weight_decay: 0.0005
+  warmup_epoch: 0
+evaluation:
+  inputs:
+  - validation
+  - celeb_df_v2_test
+  threshold: 0.5
+  video_aggregation: mean
+  group_by:
+  - category

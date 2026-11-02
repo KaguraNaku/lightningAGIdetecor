@@ -101,6 +101,19 @@ def configure_logging(directory, level):
     return root, handlers, previous_level
 
 
+def release_cpu_memory():
+    """Release unreachable models and free allocator pages after a large handoff."""
+    import ctypes
+    import gc
+
+    gc.collect()
+    trim = getattr(ctypes.CDLL(None), "malloc_trim", None)
+    if trim is not None:
+        trim.argtypes = [ctypes.c_size_t]
+        trim.restype = ctypes.c_int
+        trim(0)
+
+
 def atomic_save(path, value, *, torch_format=False):
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)

@@ -91,6 +91,9 @@ class ImageClassificationTrainer:
     def method_state_dict(self):
         return None
 
+    def load_selected_weights(self, weights):
+        self.model.load_state_dict(weights, strict=True)
+
     def load_method_state_dict(self, state):
         if state is not None:
             raise ValueError("Unexpected method-specific trainer state")
@@ -346,7 +349,7 @@ class ImageClassificationTrainer:
         selected = torch.load(
             output / "best.pth", weights_only=True, mmap=True, map_location="cpu"
         )
-        self.model.load_state_dict(selected["state_dict"], strict=True)
+        self.load_selected_weights(selected["state_dict"])
         self.objective.load_state_dict(selected["objective"], strict=True)
         self.load_method_state_dict(selected.get("method_state"))
         self.model.eval()

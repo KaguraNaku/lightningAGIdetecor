@@ -19,6 +19,7 @@ from .evaluate import evaluate
 from .fit import fit, restore
 from .runtime import (
     Runtime,
+    release_cpu_memory,
     atomic_save,
     configure_logging,
     collator_for,
@@ -124,6 +125,7 @@ def execute(
             status["checkpoint"] = {"path": str(path), "sha256": sha256(path)}
             if command == "run":
                 del task
+                release_cpu_memory()
                 task, _ = restore(path)
         reports = {}
         for name in names:

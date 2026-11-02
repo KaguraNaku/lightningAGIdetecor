@@ -1,6 +1,7 @@
 """Model-independent fitting orchestration and checkpoint envelope."""
 
 from pathlib import Path
+import zipfile
 
 import torch
 
@@ -32,7 +33,9 @@ def fit(task, loader, *, validation_loader=None, runtime, config, output_dir, pr
 
 
 def restore(path):
-    checkpoint = torch.load(path, map_location="cpu", weights_only=True)
+    checkpoint = torch.load(
+        path, map_location="cpu", weights_only=True, mmap=zipfile.is_zipfile(path)
+    )
     if (
         checkpoint.get("version") != 1
         or checkpoint.get("score", {}).get("direction") != "higher_is_fake"
