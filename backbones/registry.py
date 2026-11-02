@@ -5,6 +5,7 @@ stores an already available callable without importing other backends.
 """
 
 LOADERS = {
+    ("xception_sladd", "vision"): ("backbones.models.xception_sladd", "load_xception_sladd"),
     ("hrnet_w48", "vision"): ("backbones.models.hrnet_w48", "load_hrnet_w48"),
     ("clip_checkpoint", "vision"): ("backbones.models.clip_checkpoint", "load_clip_checkpoint"),
     ("effluxlet_clip", "vision"): ("backbones.models.effluxlet_clip", "load_effluxlet_clip"),
