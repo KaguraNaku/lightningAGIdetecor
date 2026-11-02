@@ -1,1 +1,1 @@
-"""PCL model stage; I2G training/data adapter remains under migration."""
+"""Independent PCL model, pinned I2G data, whole-pair training and Task adapter."""

@@ -1,11 +1,16 @@
-PCL model and pure I2G components; task adapter pending
-======================================================
+PCL-Xception and I2G on the unified experiment pipeline
+========================================================
 
-The independent SLADD-Xception backbone, PCL correlation/loss and pure I2G
-generation components are implemented. No Task factory, Trainer or runnable
-experiment config is exposed yet. PCL-Xception remains pending in the42-method
-migration ledger until sidecar IO, source selection/fallback, scheduler and
-complete unified training/evaluation are connected and verified.
+PCLTask composes the independent SLADD-Xception/PCL model, a pinned ordered
+neighbor bank, real-only I2G dataset and whole-pair trainer. Training, source
+validation, selected checkpoint restoration and final image/video evaluation
+use the existing engine. Production code never imports DeepfakeBench.
+
+The source algorithm is preserved for successful inputs. Remake uses explicit
+train manifests and stable first-occurrence deduplication, with source-domain
+validation for checkpoint selection. These transport/selection choices differ
+from the original full experiment. Historical trained PCL scores, GPU alignment
+and full151-sweep dataset reproduction remain unverified.
 
 Native model semantics
 ------------------------
@@ -55,11 +60,13 @@ float32 and are not replaced by FaceXray's4*alpha*(1-alpha) boundary.
 Collation is all REAL then all FAKE without shuffle, with masks/labels aligned.
 Twenty preserved native seeds/40 source pairs agree exactly for pixels, raw
 masks, downsampled masks,4D targets, labels/order and final Python/NumPy/Torch RNG.
-That proof covers pure components; it does not establish the future dataset
-selection/IO/fallback adapter.
+A separate actual-base-NPY-loader audit checks the complete dataset/collator
+for40 seeds (20 float32,20 float64), first-source fallback and missing-sidecar
+boundaries, including exact resulting RNG. Raw success and failure artifacts
+remain available.
 
-Required remaining integration
---------------------------------
+Data binding and failure boundaries
+-------------------------------------
 
 I2G selects real backgrounds and deduplicates them using list(set(...)); this
 legacy hash-dependent inventory order must be distinguished from remake input
@@ -74,21 +81,46 @@ the independent generator matches every pixel/mask and RNG without casting.
 Missing foreground sidecars leave the pair and RNG unchanged. Missing background
 sidecars produced4 finite and16 nonfinite masks across20 seeds; retain this
 negative evidence instead of treating native zero fill as automatic rejection.
-The future dataset must record missing sidecars and stop explicitly on nonfinite
-generation rather than train on NaNs. Dataset integration is still pending.
+The dataset records missing sidecars and stops explicitly on nonfinite
+generation rather than train on NaNs. Finite native zero-fill outputs remain.
 
 On image decode failure, native __getitem__ recursively returns index0. A
 successful first-source replacement and its extra RNG are preserved in the
 native probe. If index0 also fails, recursion ends in RecursionError; the probe
-used an explicit recursion100 cap inside its cgroup. Any bounded fail-fast
-rewrite must separately record the changed failure boundary and actual versus
-requested source coverage. Do not silently drop or relabel samples.
+used an explicit recursion100 cap inside its cgroup. The adapter retries index0 once, preserving successful replacement pixels and
+RNG. If that replacement also fails it saves a diagnostic and stops. This
+changes the persistent-failure boundary explicitly. Requested slot IDs remain
+unique while every view also records its actual pixel background. Per-epoch
+coverage reports both requested slots and unique actual sources/occurrences.
 
-The remaining Task/Trainer must retain native151 inclusive sweeps, Adam2e-4/
-decay5e-4, StepLR3/gamma0.4 placement, full paired BN batches, source/mask/fallback
-provenance, strict standalone state and source-domain validation. Native
-non-SWA scheduler call is verified outside the complete epoch loop: once AFTER
-the fit, not per epoch. Its safe checkpoint carrier still needs integration.
+The Task/Trainer retain native151 default inclusive sweeps, Adam2e-4/decay5e-4,
+full paired BN batches and raw-mask supervision. Non-SWA StepLR3/gamma0.4 runs
+once AFTER the complete fit, as in the source. Epoch snapshots retain pre-fit-
+completion scheduler state; the final Task carries its post-fit state. Exact
+optimizer/RNG training resume is not supported. Source-domain validation and
+optional early stopping are remake selection policies, not original reproduction.
+
+Prepare the neighbor bank offline with:
+
+::
+
+  python3 tools/bounded_run.py --output NEW_ABSOLUTE_RUN --memory-mib 1536 --timeout 600 -- .venv/bin/python -m detectors.pcl_xception.prepare --manifest /absolute/train.jsonl --neighbors-pickle /absolute/trusted-nearest-face-info.pkl --output /absolute/NEW-bank
+
+Every manifest member needs metadata.pcl_bank_id matching its published
+landmark-path key. All ordered neighbor references must bind the SAME complete
+train inventory; duplicates and absent-key self fallback retain native RNG.
+There is no silent neighbor truncation/filtering or replacement with a landmark
+dictionary. Neighbor arrays are memory-mapped and fingerprinted. Coordinates
+come from raw per-frame NPY sidecars: native frames-to-landmarks derivation, or
+metadata.landmarks={path,coordinate_size:256,sha256:optional}. Present files and
+missing-file absence are pinned before workers start; no dtype cast/rescaling.
+Training backgrounds filter real0 and deduplicate storage identities before
+sampling. Foreground inventory, including unused fake rows, is checked for
+validation overlap. Inference restore needs neither the bank nor NPY files.
+
+configs/experiments/pcl_xception_ffpp.yaml preserves source batch32/effective64;
+our bounded CPU workflow checks use a separate declared miniature source2/
+effective4 fixture. Smaller CPU checks do not prove full-batch/full-data training.
 
 Evidence is under persistent /var/lib/codex-experiments-naku. Native I2G data
 probe-v2 preserves complete20-seed tensors/RNG and fallback logs. Initial oracle
