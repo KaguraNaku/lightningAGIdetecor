@@ -24,6 +24,7 @@ from .runtime import (
     configure_logging,
     collator_for,
     dataset_adapter_for,
+    sampler_factory_for,
     create_run_dir,
     create_task,
 )
@@ -94,6 +95,7 @@ def execute(
                 config=data,
                 collate_fn=collator_for(task, stage),
                 dataset_adapter=dataset_adapter_for(task, stage),
+                sampler_factory=sampler_factory_for(task, stage),
                 seed=config["seed"],
             )
             status["inputs"][name] = {

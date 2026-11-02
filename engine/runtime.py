@@ -90,6 +90,18 @@ def dataset_adapter_for(task, stage):
     return partial(provider, stage=stage)
 
 
+def sampler_factory_for(task, stage):
+    """Optionally construct a method sampler after dataset adaptation."""
+    if stage not in ("train", "validation", "evaluation"):
+        raise ValueError(f"Unknown sampler stage: {stage}")
+    provider = getattr(task, "get_sampler", None)
+    if provider is None:
+        return None
+    if not callable(provider):
+        raise TypeError("Task get_sampler must be callable")
+    return partial(provider, stage=stage)
+
+
 def create_run_dir(root, command):
     stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
     path = (

@@ -1,11 +1,14 @@
-LSDA independent model stage
-===============================
+LSDA independent implementation
+================================
 
-This stage provides the default local LSDA mathematical model and two lazy
-backbones. It does NOT provide the grouped dataset, native sampler transport,
-Trainer or Task factory yet. LSDA therefore remains pending in the42-registration
-ledger. Constructed-model and CPU component checks do not imply a complete
-experiment pipeline or trained-detector performance reproduction.
+LSDATask composes the native default detector, method-owned grouped Trainer,
+explicit manifest dataset, sampler and collator. The common engine resolves
+inputs and forwards an optional sampler hook after dataset adaptation; it has
+no LSDA-specific branch. Training retains whole five-domain groups. Validation
+and final evaluation use ordinary complete image manifests and the shared
+image/video metrics. Migration status is gated by the recorded full regression;
+workflow checks and mathematical alignment do not imply trained-score or full
+experiment reproduction.
 
 Native default construction
 ------------------------------
@@ -105,17 +108,75 @@ for CPU. Native constructor/split discovery and full worker/RNG protocol remain
 unverified. These are original-source reference receipts, not an independent
 dataset implementation or an integrated training workflow.
 
-The grouped sampler/data/Task/Trainer remain UNCONNECTED. The native sampler must
-shuffle groups, draw one shared slot for their five videos, and preserve batch-
-index collection before augmentation. Its dedicated brightness/flip/downscale/
-sharpen/JPEG profile must not be replaced by the common image augmentation.
-Neighboring-slot replacement, requested/actual frame provenance, invalid-group
-filtering and full-source validation isolation require explicit integration and
-runtime data checks. The original dataset's eager CUDA query fails on CPU and
-its persistent decode recursion needs a recorded bounded repair. The alternative
-Xception constructor is also unverified/broken in the local source and is not
-silently substituted. No official LSDA experiment config is exposed at this stage.
+Grouped data and unified workflow
+------------------------------------
 
-Historical trained scores, GPU alignment, full51-sweep experiments, exact training
-resume and complete LSDA OO workflow remain unverified. Lightning dual experts
+LSDAInventoryBuilder derives group metadata from an existing complete train
+manifest and explicit official FF++ split pairs. It follows native pair order,
+emitting both directions, and preserves each video's32 existing rows in their
+declared manifest order. It never selects new images or changes binary labels,
+paths, storage or physical frame indices. Group-specific ids retain their exact
+upstream source ids and manifest hash. Missing domains/slots, ambiguous video ids
+and conflicting labels fail; unused source ids and upstream reconciliation
+identities remain in the preparation receipt. Existing outputs are never replaced.
+
+The remake FF++ adapter names categories youtube/Deepfakes/Face2Face/FaceSwap/
+NeuralTextures; these are the preparation/preset map. A caller with FF-real/FF-DF/
+FF-F2F/FF-FS/FF-NT metadata must supply an explicit category map. No alias or
+fake-type renumbering is inferred. Prepare a fresh grouped manifest::
+
+    .venv/bin/python -m detectors.lsda.manifest \
+      --input /absolute/path/to/FaceForensics++-train-frames-32.jsonl \
+      --pairs /absolute/path/to/FFpp/train.json \
+      --output /absolute/path/to/FaceForensics++-train-lsda.jsonl
+
+LSDADataset validates all five domains and32 slots per group, then LSDAGroupSampler
+shuffles groups with Python RNG and draws one shared requested slot per group.
+DataLoader collects each batch's indices before per-image augmentation. Sampling
+uses the declared complete group inventory, replacing the source hardcoded720
+group count. Do not treat320 inventory rows as320 observations per epoch: the
+two-group reference yields10 sampled images. Per-epoch receipts distinguish
+requested/actual sources, invalid excluded groups and unselected inventory slots.
+
+Its dedicated brightness/flip/nearest-downscale+linear-upscale/sharpen/JPEG
+augmentation is always active, as in the original getitem despite the source
+use_data_augmentation:false setting. Original slot0/31 edges and interior random
+neighbor recovery retain video/domain and RNG. Persistent failure now stops at
+explicit max_decode_attempts with all attempted sources and RNG; original
+unbounded recursion and its negative receipt remain preserved. Invalid label sets
+are filtered by whole group; all-invalid input fails. A valid domain set in the
+wrong order or with mixed requested slots fails rather than silently sorting.
+
+Native and independent20-seed whole-batch data checks agree in every image value,
+label, index and RNG, both manually and through create_input_loader. Sixty native
+slot0/interior/31 recovery cases agree in pixels, labels, actual neighbors and RNG.
+The prepared-manifest path separately replays20 native seeds. Spawn-worker tests
+verify deterministic remake transport; native full worker/RNG protocol remains
+unverified. Remake's private loader generator and worker seeding are explicit
+policies, not a claim of the original training process's complete RNG trajectory.
+
+The actual Task constructor, all2577-parameter optimizer,2140 gradients, BN/Adam
+update and strict Task predict restoration also match the native batch10 model.
+A separate constructed-random full workflow runs two native-geometry epochs,
+real source validation, early stopping, best-weight restoration and final image/
+video evaluation. Its min_delta2 selection probe forces deterministic second-
+epoch non-improvement without replacing actual AUC calculation. Raw validation
+metrics and predictions survive; this is a workflow test, not trained performance.
+
+configs/experiments/lsda_ffpp.yaml exposes the default B4/IResNet100 route. Set its
+actual B4 weight path, grouped manifest and durable output directory. Execute
+training through tools/bounded_run.py with explicit timeout and resource budgets.
+The whole-batch CPU workflow requires20GiB free for temporary activations and
+retained checkpoints; successful activation scratch is removed only after backward.
+REMAKE_EXPERIMENT_ROOT selects workflow-test artifact storage and must be passed
+inside the bounded command with /usr/bin/env, because the service forwards an
+explicit environment. The first workflow preflight failure is retained.
+
+Explicit manifests replace native eager CUDA-name/hardcoded-drive and cross-split/
+c40 discovery. Source frame discovery/selection is not claimed reproduced by
+grouping an existing remake32-frame manifest. The alternative Xception constructor
+is unverified/broken in the local source and is not exposed by the preset.
+
+Historical trained scores, GPU alignment, full51-sweep experiments and exact
+training resume remain unverified. Lightning dual experts
 and unified partial_fit/remove_batch entry points remain unconnected.

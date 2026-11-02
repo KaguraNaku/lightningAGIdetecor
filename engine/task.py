@@ -12,6 +12,13 @@ attach required supervision while preserving manifest/source identities. Tasks
 without this hook keep the original dataset. Selection policy and excluded-source
 coverage belong in the method's protocol receipts.
 
+An optional get_sampler(dataset, *, stage, batch_size, shuffle, seed) is called
+after dataset adaptation and before worker creation. Return a method-owned index
+sampler or None for ordinary sampling; explicit samplers require shuffle=False.
+DataLoader collects a complete batch of indices before loading/augmenting items.
+For sampled inventories, distinguish available source rows from sampled rows and
+record requested/actual sources and excluded groups in method-owned receipts.
+
 An adapter may additionally implement predict_batch(batch, runtime=...) when
 the original algorithm observes labels, metadata or aligned auxiliary inputs
 during evaluation. The evaluator prefers this route; image-only adapters retain

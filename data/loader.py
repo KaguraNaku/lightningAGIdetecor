@@ -91,6 +91,7 @@ def create_loader(
     processor=None,
     *,
     collate_fn=None,
+    sampler=None,
     batch_size=32,
     shuffle=False,
     num_workers=0,
@@ -99,13 +100,18 @@ def create_loader(
     prefetch_factor=2,
     persistent_workers=None,
 ):
-    """Visit each record once, skipping decode failures without replacement."""
+    """Use ordinary row sampling unless an explicit method-owned sampler is supplied."""
     if (processor is None) == (collate_fn is None):
         raise ValueError("Supply exactly one of processor or collate_fn")
     generator = torch.Generator().manual_seed(seed)
     records = getattr(dataset, "records", [])
-    sampler = None
-    if shuffle and any(record.storage == "parquet" for record in records):
+    if sampler is not None and shuffle:
+        raise ValueError("Supply either an explicit sampler or shuffle=True")
+    if (
+        sampler is None
+        and shuffle
+        and any(record.storage == "parquet" for record in records)
+    ):
         sampler = RowGroupSampler(records, generator)
         shuffle = False
     return ImageDataLoader(
@@ -154,7 +160,14 @@ def create_input_dataset(settings, config):
 
 
 def create_input_loader(
-    settings, *, config, processor=None, collate_fn=None, seed=42, dataset_adapter=None
+    settings,
+    *,
+    config,
+    processor=None,
+    collate_fn=None,
+    seed=42,
+    dataset_adapter=None,
+    sampler_factory=None,
 ):
     dataset = create_input_dataset(settings, config)
     if dataset_adapter is not None:
@@ -171,8 +184,18 @@ def create_input_loader(
         )
         if key in settings
     }
+    sampler = (
+        sampler_factory(
+            dataset,
+            batch_size=options.get("batch_size", 32),
+            shuffle=options.get("shuffle", False),
+            seed=seed,
+        )
+        if sampler_factory is not None
+        else None
+    )
     return create_loader(
-        dataset, processor, collate_fn=collate_fn, seed=seed, **options
+        dataset, processor, collate_fn=collate_fn, sampler=sampler, seed=seed, **options
     )
 
 
