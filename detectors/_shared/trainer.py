@@ -85,6 +85,16 @@ class ImageClassificationTrainer:
             raise ValueError("Plain classification requires (N, 2) logits")
         return self.objective(logits, labels)
 
+    def make_scorer(self):
+        return _Scorer(self.model)
+
+    def method_state_dict(self):
+        return None
+
+    def load_method_state_dict(self, state):
+        if state is not None:
+            raise ValueError("Unexpected method-specific trainer state")
+
     def build_optimizer(self, settings):
         parameters = [p for p in self.model.parameters() if p.requires_grad]
         if not parameters:
@@ -274,7 +284,7 @@ class ImageClassificationTrainer:
             optimizer.zero_grad(set_to_none=True)
             self.model.eval()
             validation = evaluate(
-                _Scorer(self.model),
+                self.make_scorer(),
                 validation_loader,
                 runtime=runtime,
                 settings={
@@ -320,6 +330,9 @@ class ImageClassificationTrainer:
                 else [],
                 "loader_rng": loader.generator.get_state(),
             }
+            method_state = self.method_state_dict()
+            if method_state is not None:
+                snapshot["method_state"] = method_state
             atomic_save(output / "last.pth", snapshot, torch_format=True)
             if improved:
                 select_checkpoint(output / "last.pth", output / "best.pth")
@@ -334,6 +347,8 @@ class ImageClassificationTrainer:
             output / "best.pth", weights_only=True, mmap=True, map_location="cpu"
         )
         self.model.load_state_dict(selected["state_dict"], strict=True)
+        self.objective.load_state_dict(selected["objective"], strict=True)
+        self.load_method_state_dict(selected.get("method_state"))
         self.model.eval()
         return {
             "epochs": len(history),
