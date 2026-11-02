@@ -1,0 +1,55 @@
+# Native Effluxlet CLIP-L/14, rank32, four Haar levels and CE+100*cosine.
+# Offline pinned OpenAI cache; init_weights may name the complete CLIP safetensors.
+# Explicit optimizer repair: disjoint other5e-6 / wavelets1e-4, not the broken
+# generic source chooser. Native batch24, frames8 and epochs0..15.
+# Remake manifests/selection differ from the full original experiment.
+version: 1
+seed: 1024
+runtime:
+  device: cpu
+  precision: fp32
+  allow_tf32: false
+  log_level: INFO
+  output_dir: outputs/effluxlet_ffpp
+model:
+  factory: detectors.effluxlet.experiment:create_task
+  augmentation: true
+loader:
+  batch_size: 24
+  num_workers: 0
+  persistent_workers: false
+  shuffle: false
+inputs:
+  training:
+    dataset: FaceForensics++
+    split: train
+    manifest: ${MANIFEST_ROOT}/FaceForensics++-train-frames-8.jsonl
+    shuffle: true
+  validation:
+    dataset: FaceForensics++
+    split: val
+    manifest: ${MANIFEST_ROOT}/FaceForensics++-val-frames-8.jsonl
+    batch_size: 24
+  celeb_df_v2_test:
+    dataset: Celeb-DF-v2
+    split: test
+    manifest: ${MANIFEST_ROOT}/Celeb-DF-v2-test-frames-8.jsonl
+    batch_size: 24
+fit:
+  input: training
+  validation_input: validation
+  epochs: 16
+  patience: null
+  monitor: video.auc
+  optimizer: adam
+  learning_rate: 5.0e-06
+  weight_decay: 0.0005
+  wavelets_learning_rate: 0.0001
+evaluation:
+  inputs:
+  - validation
+  - celeb_df_v2_test
+  threshold: 0.5
+  video_aggregation: mean
+  group_by:
+  - category
