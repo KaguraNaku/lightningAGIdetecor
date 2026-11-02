@@ -40,6 +40,7 @@ def evaluate(task, loader, *, runtime, settings, output_dir):
         threshold=settings["threshold"],
         video_aggregation=settings["video_aggregation"],
         group_by=settings["group_by"],
+        prediction_unit=getattr(task, "prediction_unit", "image"),
     )
     seen = set()
     expected_records = {record.id: record for record in loader.dataset.records}
@@ -81,6 +82,8 @@ def evaluate(task, loader, *, runtime, settings, output_dir):
                     )
                 seen.add(sample_id)
                 record = {**metadata, "label": label, "score": score}
+                if accumulator.prediction_unit != "image":
+                    record.setdefault("prediction_unit", accumulator.prediction_unit)
                 accumulator.add(record)
                 stream.write(json.dumps(record, allow_nan=False) + "\n")
     report = {

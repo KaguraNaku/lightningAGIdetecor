@@ -5,6 +5,8 @@ import json
 import numpy as np
 from sklearn.metrics import average_precision_score, roc_auc_score, roc_curve
 
+from .units import validate_prediction_unit
+
 
 def binary_metrics(labels, scores, threshold):
     labels = np.asarray(labels, dtype=np.int64)
@@ -49,7 +51,15 @@ def binary_metrics(labels, scores, threshold):
 class MetricAccumulator:
     """Keep scores on CPU for ranking metrics, not image tensors or GPU outputs."""
 
-    def __init__(self, *, threshold=0.0, video_aggregation="mean", group_by=()):
+    def __init__(
+        self,
+        *,
+        threshold=0.0,
+        video_aggregation="mean",
+        group_by=(),
+        prediction_unit="image",
+    ):
+        self.prediction_unit = validate_prediction_unit(prediction_unit)
         self.threshold = threshold
         self.video_aggregation = video_aggregation
         self.group_by = group_by
@@ -58,6 +68,10 @@ class MetricAccumulator:
         self.missing_video = 0
 
     def add(self, record):
+        if record.get("prediction_unit", self.prediction_unit) != self.prediction_unit:
+            raise ValueError(
+                "Observation metadata differs from the task prediction unit"
+            )
         label, score = record["label"], record["score"]
         self.labels.append(label)
         self.scores.append(score)
@@ -85,7 +99,13 @@ class MetricAccumulator:
             scores.append(score)
 
     def result(self):
-        result = {"image": binary_metrics(self.labels, self.scores, self.threshold)}
+        result = {
+            self.prediction_unit: binary_metrics(
+                self.labels, self.scores, self.threshold
+            )
+        }
+        if self.prediction_unit != "image":
+            result["prediction_unit"] = self.prediction_unit
         result["video"] = None
         if self.videos:
             values = list(self.videos.values())

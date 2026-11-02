@@ -23,6 +23,12 @@ An adapter may additionally implement predict_batch(batch, runtime=...) when
 the original algorithm observes labels, metadata or aligned auxiliary inputs
 during evaluation. The evaluator prefers this route; image-only adapters retain
 predict(images).
+
+An optional prediction_unit attribute declares "image" (the legacy default) or
+"clip". Return one fake score per observation. Clip tasks retain clip IDs and
+source video IDs; evaluation reports clip metrics and separately aggregated
+video metrics. Never fabricate image metrics from one clip-level score. The
+task's saved construction state must retain its prediction-unit contract.
 """
 
 from pathlib import Path
@@ -46,7 +52,7 @@ class ExperimentTask(Protocol):
         ...
 
     def predict(self, images: torch.Tensor, *, runtime) -> torch.Tensor:
-        """Return one finite raw fake score per image, with shape (N,)."""
+        """Return one finite raw fake score per declared observation, shape (N,)."""
         ...
 
     def state_dict(self) -> dict:

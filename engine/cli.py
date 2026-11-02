@@ -17,6 +17,7 @@ from data.manifest import sha256
 from .config import input_settings, read_experiment
 from .evaluate import evaluate
 from .fit import fit, restore
+from .summary import summary_rows
 from .runtime import (
     Runtime,
     release_cpu_memory,
@@ -145,18 +146,7 @@ def execute(
         if reports:
             temporary = directory / "summary.partial.csv"
             with temporary.open("w", newline="") as stream:
-                rows = []
-                for name, report in reports.items():
-                    row = {"input": name, **report["coverage"]}
-                    metric_names = dict.fromkeys(
-                        (*report["image"], *(report["video"] or {}))
-                    )
-                    for unit in ("image", "video"):
-                        metrics = report[unit] or {}
-                        row.update(
-                            {f"{unit}_{key}": metrics.get(key) for key in metric_names}
-                        )
-                    rows.append(row)
+                rows = summary_rows(reports)
                 fields = list(dict.fromkeys(k for row in rows for k in row))
                 writer = csv.DictWriter(stream, fieldnames=fields)
                 writer.writeheader()
