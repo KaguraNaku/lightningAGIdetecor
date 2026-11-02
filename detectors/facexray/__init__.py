@@ -1,1 +1,1 @@
-"""FaceXray rewrite in progress; unified training/generation remains unconnected."""
+"""FaceXray Task, explicit source bank, native paired mask training and HRNet."""

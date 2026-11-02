@@ -21,6 +21,9 @@ class PairedImageTrainer(ImageClassificationTrainer):
     def training_batches(self, loader, output):
         yield from loader
 
+    def compute_batch_loss(self, batch, images, labels, *, runtime):
+        return self.compute_loss(images, labels)
+
     def train_epoch(self, loader, optimizer, scaler, *, runtime, output):
         self.model.train()
         expected = {r.id: r for r in loader.dataset.records}
@@ -128,7 +131,9 @@ class PairedImageTrainer(ImageClassificationTrainer):
                 images = batch["pixel_values"].to(runtime.device, non_blocking=True)
                 labels = batch["labels"].to(runtime.device, non_blocking=True)
                 with runtime.autocast():
-                    loss = self.compute_loss(images, labels)
+                    loss = self.compute_batch_loss(
+                        batch, images, labels, runtime=runtime
+                    )
                 if loss.ndim or not torch.isfinite(loss):
                     raise ValueError("Nonfinite or nonscalar Paired loss")
                 scaler.scale(loss).backward()
