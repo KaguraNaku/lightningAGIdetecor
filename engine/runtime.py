@@ -127,6 +127,39 @@ def release_cpu_memory():
         trim(0)
 
 
+class _CheckpointWriter:
+    """Bound dirty file-cache growth while torch serializes a large checkpoint."""
+
+    def __init__(self, stream, chunk_bytes=8 * 1024**2):
+        self.stream, self.chunk_bytes, self.pending = stream, chunk_bytes, 0
+
+    def write(self, data):
+        data = memoryview(data)
+        total = len(data)
+        for start in range(0, total, self.chunk_bytes):
+            block = data[start : start + self.chunk_bytes]
+            written = self.stream.write(block)
+            if written != len(block):
+                raise OSError("Incomplete checkpoint write")
+            self.pending += written
+            if self.pending >= self.chunk_bytes:
+                self.flush()
+        return total
+
+    def flush(self):
+        self.stream.flush()
+        if self.pending:
+            getattr(os, "fdatasync", os.fsync)(self.stream.fileno())
+            advise = getattr(os, "posix_fadvise", None)
+            advice = getattr(os, "POSIX_FADV_DONTNEED", None)
+            if advise is not None and advice is not None:
+                advise(self.stream.fileno(), 0, 0, advice)
+            self.pending = 0
+
+    def tell(self):
+        return self.stream.tell()
+
+
 def atomic_save(path, value, *, torch_format=False):
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -135,7 +168,7 @@ def atomic_save(path, value, *, torch_format=False):
     try:
         if torch_format:
             with open(temporary, "wb") as stream:
-                torch.save(value, stream)
+                torch.save(value, _CheckpointWriter(stream))
         else:
             Path(temporary).write_text(
                 json.dumps(value, indent=2, allow_nan=False) + "\n"

@@ -5,6 +5,8 @@ stores an already available callable without importing other backends.
 """
 
 LOADERS = {
+    ("lsda_b4", "vision"): ("backbones.models.lsda_b4", "load_lsda_b4"),
+    ("lsda_iresnet100", "vision"): ("backbones.models.lsda_iresnet100", "load_lsda_iresnet100"),
     ("ucf_xception", "vision"): ("backbones.models.ucf_xception", "load_ucf_xception"),
     ("iid_xception", "vision"): ("backbones.models.iid_xception", "load_iid_xception"),
     ("iresnet50_iid", "vision"): ("backbones.models.iresnet50_iid", "load_iresnet50_iid"),
