@@ -1,0 +1,61 @@
+# Native UCF: paired16/effective32, six inclusive sweeps; no scheduler.
+# Train all four canonical FF++ fake types with their source specific labels1..4.
+# Each manifest row must provide metadata.specific_label or the category-map key.
+# New *_fake aliases are not silently corrected: declare the original mapping.
+# Bounded CPU checks use separate miniature pairbatch1/2 (effective2/4).
+version: 1
+seed: 1024
+runtime:
+  device: cpu
+  precision: fp32
+  allow_tf32: false
+  log_level: INFO
+  output_dir: outputs/ucf_ffpp
+model:
+  factory: detectors.ucf.experiment:create_task
+  init_weights: /absolute/path/to/xception-b5690688.pth
+  specific_classes: 5
+  specific_label_map:
+    FF-real: 0
+    FF-DF: 1
+    FF-F2F: 2
+    FF-FS: 3
+    FF-NT: 4
+loader:
+  batch_size: 16
+  num_workers: 0
+  persistent_workers: false
+  shuffle: false
+inputs:
+  training:
+    dataset: FaceForensics++
+    split: train
+    manifest: ${MANIFEST_ROOT}/FaceForensics++-train-frames-32.jsonl
+    shuffle: true
+  validation:
+    dataset: FaceForensics++
+    split: val
+    manifest: ${MANIFEST_ROOT}/FaceForensics++-val-frames-32.jsonl
+    batch_size: 32
+  celeb_df_v2_test:
+    dataset: Celeb-DF-v2
+    split: test
+    manifest: ${MANIFEST_ROOT}/Celeb-DF-v2-test-frames-32.jsonl
+    batch_size: 32
+fit:
+  input: training
+  validation_input: validation
+  epochs: 6
+  patience: null
+  monitor: video.auc
+  optimizer: adam
+  learning_rate: 0.0002
+  weight_decay: 0.0005
+evaluation:
+  inputs:
+  - validation
+  - celeb_df_v2_test
+  threshold: 0.5
+  video_aggregation: mean
+  group_by:
+  - category
