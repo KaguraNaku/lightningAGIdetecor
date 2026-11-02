@@ -6,6 +6,7 @@ are retained: splitting changes BatchNorm and batch-coupled objectives.
 """
 
 import importlib.metadata
+from contextlib import nullcontext
 import json
 import logging
 import math
@@ -63,8 +64,9 @@ def number(settings, key, default, *, minimum=0, strict=False):
 
 
 class _Scorer:
-    def __init__(self, model):
+    def __init__(self, model, *, prediction_unit="image"):
         self.model = model
+        self.prediction_unit = prediction_unit
 
     def predict(self, images, *, runtime):
         with runtime.autocast():
@@ -74,6 +76,8 @@ class _Scorer:
 
 
 class ImageClassificationTrainer:
+    prediction_unit = "image"
+
     def __init__(self, model, *, origin=None, objective=None):
         self.model = model
         self.origin = origin or {}
@@ -90,7 +94,11 @@ class ImageClassificationTrainer:
         return self.compute_loss(images, labels)
 
     def make_scorer(self):
-        return _Scorer(self.model)
+        return _Scorer(self.model, prediction_unit=self.prediction_unit)
+
+    def batch_context(self, batch, *, runtime, output, step):
+        """Optional method-owned transport around whole forward and backward."""
+        return nullcontext()
 
     def method_state_dict(self):
         return None
@@ -190,13 +198,16 @@ class ImageClassificationTrainer:
                 optimizer.zero_grad(set_to_none=True)
                 images = batch["pixel_values"].to(runtime.device, non_blocking=True)
                 labels = batch["labels"].to(runtime.device, non_blocking=True)
-                with runtime.autocast():
-                    loss = self.compute_batch_loss(
-                        batch, images, labels, runtime=runtime
-                    )
-                if loss.ndim or not torch.isfinite(loss):
-                    raise ValueError("Nonfinite or nonscalar classification loss")
-                scaler.scale(loss).backward()
+                with self.batch_context(
+                    batch, runtime=runtime, output=output, step=step
+                ):
+                    with runtime.autocast():
+                        loss = self.compute_batch_loss(
+                            batch, images, labels, runtime=runtime
+                        )
+                    if loss.ndim or not torch.isfinite(loss):
+                        raise ValueError("Nonfinite or nonscalar classification loss")
+                    scaler.scale(loss).backward()
                 scaler.unscale_(optimizer)
                 if any(
                     p.grad is not None and not torch.isfinite(p.grad).all()
@@ -222,8 +233,10 @@ class ImageClassificationTrainer:
 
     def fit(self, loader, *, validation_loader, runtime, settings, output_dir):
         monitor = settings.get("monitor", "video.auc")
-        if monitor not in ("image.auc", "video.auc"):
-            raise ValueError("Classification monitor must be image.auc or video.auc")
+        if monitor not in (f"{self.prediction_unit}.auc", "video.auc"):
+            raise ValueError(
+                f"Classification monitor must be {self.prediction_unit}.auc or video.auc"
+            )
         self.validate_inputs(loader, validation_loader, monitor)
         if settings.get("microbatch_size") is not None:
             raise ValueError(

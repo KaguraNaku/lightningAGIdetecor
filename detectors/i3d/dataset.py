@@ -26,7 +26,7 @@ class I3DDataset:
             raise ValueError("Unknown I3D dataset stage")
         if type(seed) is not int or not 0 <= seed < 2**32:
             raise ValueError("I3D selection seed must be an unsigned32-bit integer")
-        inventory = I3DInventory(base.manifest_path)
+        inventory = I3DInventory(base.manifest_path, dataset=base)
         expected_split = {"train": "train", "validation": "val"}.get(stage)
         if expected_split is not None and inventory.header["split"] != expected_split:
             raise ValueError(
@@ -74,6 +74,7 @@ class I3DDataset:
 
         clip = self.records[index]
         if self._pid != os.getpid():
+            cv2.setNumThreads(0)
             self._pid = os.getpid()
             self._transform = I3DClipTransform(training=self.stage == "train")
         augmentation_seed = random.randint(0, 2**32 - 1)

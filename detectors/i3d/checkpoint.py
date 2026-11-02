@@ -4,7 +4,7 @@ from detectors._shared.checkpoint import read_weights
 
 
 def initialize_backbone(backbone, path):
-    weights, receipt = read_weights(path)
+    weights, receipt = read_weights(path, encoding="latin1")
     supplied = {}
     for key, value in weights.items():
         target = key.replace("resnet.", "")
@@ -32,6 +32,7 @@ def initialize_backbone(backbone, path):
     backbone.load_state_dict(supplied, strict=True)
     return {
         **receipt,
+        "native_pickle_encoding": "latin1",
         "source_projection_rows": source_classes,
         "selected_projection_rows": [0],
         "matched_keys": len(supplied),

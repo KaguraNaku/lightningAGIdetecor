@@ -1,9 +1,11 @@
 """Bind complete frame-manifest snapshots without scanning source directories."""
 
 from collections import OrderedDict
+from itertools import zip_longest
+import json
 from pathlib import Path, PurePosixPath
 
-from data.manifest import read_manifest, read_metadata, sha256
+from data.manifest import Sample, read_manifest, read_metadata, sha256
 from .clips import VideoFrames
 
 
@@ -15,9 +17,14 @@ class I3DInventory:
     original-author corpus completeness. No new data discovery takes place.
     """
 
-    def __init__(self, manifest):
+    def __init__(self, manifest, *, dataset=None):
         self.manifest_path = Path(manifest).resolve()
-        self.header, records = read_manifest(self.manifest_path)
+        if dataset is None:
+            self.header, records = read_manifest(self.manifest_path)
+            binding = "standalone_manifest_read"
+        else:
+            self.header, records = self._verified_existing_rows(dataset)
+            binding = "stream_verified_reuse_existing_dataset_records"
         sampling = self.header.get("sampling", {})
         if (
             set(sampling) != {"frames_per_video", "algorithm", "limit"}
@@ -91,4 +98,53 @@ class I3DInventory:
             "fresh_disk_inventory_verified": False,
             "original_author_corpus_completeness_verified": False,
             "excluded_source_rows_retained_for_validation": True,
+            "record_binding": binding,
         }
+
+    def _verified_existing_rows(self, dataset):
+        """Check all physical JSONL rows while keeping only one parsed row live.
+
+        The original dataset records remain authoritative. Do not build another
+        full list of Sample objects merely to verify an adapted dataset.
+        """
+        if Path(dataset.manifest_path).resolve() != self.manifest_path:
+            raise ValueError("I3D base dataset refers to a different source manifest")
+        before = sha256(self.manifest_path)
+        seen = set()
+        missing = object()
+        with self.manifest_path.open() as stream:
+            header = json.loads(next(stream))["manifest"]
+            if header.get("version") != 1 or header != dataset.header:
+                raise ValueError(
+                    "I3D base dataset header differs from its source snapshot"
+                )
+            count = 0
+            for number, (line, existing) in enumerate(
+                zip_longest(stream, dataset.records, fillvalue=missing), 2
+            ):
+                if line is missing or existing is missing:
+                    raise ValueError(
+                        "I3D base dataset row coverage differs from its source snapshot"
+                    )
+                try:
+                    row = Sample(**json.loads(line))
+                except (ValueError, TypeError, KeyError) as error:
+                    raise ValueError(
+                        f"{self.manifest_path}:{number}: {error}"
+                    ) from error
+                if (
+                    row != existing
+                    or existing.id in seen
+                    or row.dataset != header["dataset"]
+                    or row.split != header["split"]
+                ):
+                    raise ValueError(
+                        "I3D base dataset rows differ from their source snapshot"
+                    )
+                seen.add(existing.id)
+                count += 1
+        if not count or sha256(self.manifest_path) != before:
+            raise ValueError(
+                "I3D source snapshot is empty or changed during verification"
+            )
+        return header, dataset.records
