@@ -13,8 +13,9 @@ without this hook keep the original dataset. Selection policy and excluded-sourc
 coverage belong in the method's protocol receipts.
 
 An adapter may additionally implement predict_batch(batch, runtime=...) when
-the original algorithm observes labels or metadata during evaluation. The
-evaluator prefers this route; image-only adapters retain predict(images).
+the original algorithm observes labels, metadata or aligned auxiliary inputs
+during evaluation. The evaluator prefers this route; image-only adapters retain
+predict(images).
 """
 
 from pathlib import Path

@@ -1,0 +1,55 @@
+# Native dual-B4 RGB/IDCT model, CE+maskBCE+similarityMSE, threshold .33.
+# Original LRL data entry is broken: tuple/rank/missing-zero dtype repairs are explicit.
+# Mask PNGs derive frames->masks or metadata.mask={path,sha256:optional}.
+# Missing masks retain zero values; float64 native zeros become float32 for BCE.
+# Every stage transports aligned RGB/IDCT/masks; decode errors stop with diagnostics.
+# Native batch32 and41 sweeps; bounded CPU checks use separate miniature batch2.
+version: 1
+seed: 1024
+runtime:
+  device: cpu
+  precision: fp32
+  allow_tf32: false
+  log_level: INFO
+  output_dir: outputs/lrl_ffpp
+model:
+  factory: detectors.lrl.experiment:create_task
+  init_weights: /absolute/path/to/efficientnet-b4-6ed6700e.pth
+loader:
+  batch_size: 32
+  num_workers: 0
+  persistent_workers: false
+  shuffle: false
+inputs:
+  training:
+    dataset: FaceForensics++
+    split: train
+    manifest: ${MANIFEST_ROOT}/FaceForensics++-train-frames-8.jsonl
+    shuffle: true
+  validation:
+    dataset: FaceForensics++
+    split: val
+    manifest: ${MANIFEST_ROOT}/FaceForensics++-val-frames-32.jsonl
+    batch_size: 32
+  celeb_df_v2_test:
+    dataset: Celeb-DF-v2
+    split: test
+    manifest: ${MANIFEST_ROOT}/Celeb-DF-v2-test-frames-32.jsonl
+    batch_size: 32
+fit:
+  input: training
+  validation_input: validation
+  epochs: 41
+  patience: null
+  monitor: video.auc
+  optimizer: adam
+  learning_rate: 0.0002
+  weight_decay: 0.0005
+evaluation:
+  inputs:
+  - validation
+  - celeb_df_v2_test
+  threshold: 0.5
+  video_aggregation: mean
+  group_by:
+  - category

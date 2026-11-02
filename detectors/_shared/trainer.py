@@ -85,6 +85,10 @@ class ImageClassificationTrainer:
             raise ValueError("Plain classification requires (N, 2) logits")
         return self.objective(logits, labels)
 
+    def compute_batch_loss(self, batch, images, labels, *, runtime):
+        """Methods may consume aligned auxiliary inputs without replacing fit."""
+        return self.compute_loss(images, labels)
+
     def make_scorer(self):
         return _Scorer(self.model)
 
@@ -140,7 +144,9 @@ class ImageClassificationTrainer:
             if {r.label for r in dataset.records} != labels:
                 if labels == {0, 1}:
                     raise ValueError("Training and validation require both classes")
-                raise ValueError(f"Training requires exactly source labels {sorted(labels)}")
+                raise ValueError(
+                    f"Training requires exactly source labels {sorted(labels)}"
+                )
 
         def identity(r):
             return r.storage, r.path, r.row_group, r.row_index
@@ -185,7 +191,9 @@ class ImageClassificationTrainer:
                 images = batch["pixel_values"].to(runtime.device, non_blocking=True)
                 labels = batch["labels"].to(runtime.device, non_blocking=True)
                 with runtime.autocast():
-                    loss = self.compute_loss(images, labels)
+                    loss = self.compute_batch_loss(
+                        batch, images, labels, runtime=runtime
+                    )
                 if loss.ndim or not torch.isfinite(loss):
                     raise ValueError("Nonfinite or nonscalar classification loss")
                 scaler.scale(loss).backward()
