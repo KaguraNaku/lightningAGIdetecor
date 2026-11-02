@@ -9,12 +9,13 @@ import torch
 
 from backbones.load_backbone import load_backbone
 from data.manifest import sha256
-from detectors._shared.checkpoint import read_weights, load_strict
+from detectors._shared.checkpoint import read_weights
 from detectors._shared.provenance import reference_for
 from detectors._shared.task import ImageClassificationTask
 from detectors._shared.transforms import preprocessing_config
 from .detector import EffluxletDetector
 from .trainer import EffluxletTrainer
+from .checkpoint import restore_weights
 
 
 RECIPE = {
@@ -115,10 +116,7 @@ class EffluxletTask(ImageClassificationTask):
         if weights is not None:
             with torch.device("meta"):
                 model = build()
-            load_strict(model, weights, assign=True)
-            for p in model.parameters():
-                if p.requires_grad:
-                    p.data = p.detach().clone()
+            restore_weights(model, weights)
         else:
             model = build()
         super().__init__(

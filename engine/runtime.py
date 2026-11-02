@@ -1,6 +1,7 @@
 """Runtime resources and artifacts; no detector-specific imports."""
 
 from contextlib import nullcontext
+from functools import partial
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from importlib import import_module
@@ -75,6 +76,18 @@ def collator_for(task, stage):
     if not callable(collator):
         raise TypeError(f"Task returned a noncallable collator for {stage}")
     return collator
+
+
+def dataset_adapter_for(task, stage):
+    """Optionally adapt a resolved dataset before sampling or worker creation."""
+    if stage not in ("train", "validation", "evaluation"):
+        raise ValueError(f"Unknown dataset stage: {stage}")
+    provider = getattr(task, "prepare_dataset", None)
+    if provider is None:
+        return None
+    if not callable(provider):
+        raise TypeError("Task prepare_dataset must be callable")
+    return partial(provider, stage=stage)
 
 
 def create_run_dir(root, command):

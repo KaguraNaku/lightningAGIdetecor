@@ -127,7 +127,7 @@ class ImageClassificationTrainer:
         raise ValueError("Classification optimizer must be adam or sgd")
 
     @staticmethod
-    def validate_inputs(loader, validation_loader, monitor):
+    def validate_inputs(loader, validation_loader, monitor, *, training_labels=None):
         if validation_loader is None:
             raise ValueError("Classification training requires fit.validation_input")
         train, val = loader.dataset, validation_loader.dataset
@@ -135,9 +135,12 @@ class ImageClassificationTrainer:
             raise ValueError("Training and selection require train/val manifests")
         if train.header["dataset"] != val.header["dataset"]:
             raise ValueError("Selection requires source-domain validation")
-        for dataset in (train, val):
-            if {r.label for r in dataset.records} != {0, 1}:
-                raise ValueError("Training and validation require both classes")
+        allowed_train = {0, 1} if training_labels is None else set(training_labels)
+        for dataset, labels in ((train, allowed_train), (val, {0, 1})):
+            if {r.label for r in dataset.records} != labels:
+                if labels == {0, 1}:
+                    raise ValueError("Training and validation require both classes")
+                raise ValueError(f"Training requires exactly source labels {sorted(labels)}")
 
         def identity(r):
             return r.storage, r.path, r.row_group, r.row_index

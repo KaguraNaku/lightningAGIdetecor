@@ -23,6 +23,7 @@ from .runtime import (
     atomic_save,
     configure_logging,
     collator_for,
+    dataset_adapter_for,
     create_run_dir,
     create_task,
 )
@@ -92,6 +93,7 @@ def execute(
                 input_settings(config, name),
                 config=data,
                 collate_fn=collator_for(task, stage),
+                dataset_adapter=dataset_adapter_for(task, stage),
                 seed=config["seed"],
             )
             status["inputs"][name] = {

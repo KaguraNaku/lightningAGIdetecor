@@ -3,9 +3,15 @@
 import torch
 
 from detectors._shared.trainer import ImageClassificationTrainer, number
+from engine.runtime import release_cpu_memory
+from .checkpoint import restore_weights
 
 
 class EffluxletTrainer(ImageClassificationTrainer):
+    def load_selected_weights(self, weights):
+        restore_weights(self.model, weights)
+        release_cpu_memory()
+
     def compute_loss(self, images, labels):
         return self.model.loss_terms(self.model.forward_outputs(images), labels)[
             "overall"

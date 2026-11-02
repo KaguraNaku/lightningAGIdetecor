@@ -93,7 +93,7 @@ trunk. Inputs, raw outputs, gradients, optimizer state, source snapshots, full
 tensor fingerprints, configs, seeds and environment receipts are preserved.
 Only SHA256-verified identical immutable duplicates share hardlinks.
 
-Five tests cover analytical Haar bands/energy gradient, aliases and residual
+Six tests cover analytical Haar bands/energy gradient, aliases and residual
 math, disjoint optimizer groups, strict conversion, invalid position metadata
 and full L/14 training/evaluation with selection of an earlier best epoch after
 an injected negative validation score. These selection fixtures are not accuracy
@@ -102,3 +102,14 @@ are retained. All model checks use bounded_run.py: one CPU job, RAM3072MiB,
 swap0, CPU2 and host RAM/disk reserve4096MiB. Historical trained-detector scores,
 GPU numerical alignment and full-dataset reproduction remain unverified. Raw
 paths and reproducible commands are in configs/migrations/validation.json.
+
+A later complete-suite attempt hit the unchanged3GiB cap while copying the
+selected frozen CLIP/SVD state after training. Its full best/last checkpoints,
+history and configs are preserved under persistent /var/lib/codex-experiments-
+naku, with the original temporary path retained as a symlink. Selected weights
+now use strict assigned mapped storage; trainable parameters alone are cloned.
+This method has no mutable BatchNorm buffers. A storage-ownership regression
+and full native L/14 workflow pass under the same cap. Actual pretrained model,
+gradients, optimizer update and restored scores still agree byte-for-byte with
+the preserved native reference. Geometry, rank, batch and mathematics are
+unchanged. The failed run remains distinct from the corrected evidence.

@@ -153,8 +153,12 @@ def create_input_dataset(settings, config):
     return dataset
 
 
-def create_input_loader(settings, *, config, processor=None, collate_fn=None, seed=42):
+def create_input_loader(
+    settings, *, config, processor=None, collate_fn=None, seed=42, dataset_adapter=None
+):
     dataset = create_input_dataset(settings, config)
+    if dataset_adapter is not None:
+        dataset = dataset_adapter(dataset)
     options = {
         key: settings[key]
         for key in (
