@@ -46,7 +46,12 @@ def evaluate(task, loader, *, runtime, settings, output_dir):
     temporary = output_dir / "predictions.partial.jsonl"
     with temporary.open("w") as stream:
         for batch in loader:
-            scores = task.predict(batch["pixel_values"], runtime=runtime)
+            predict_batch = getattr(task, "predict_batch", None)
+            scores = (
+                predict_batch(batch, runtime=runtime)
+                if callable(predict_batch)
+                else task.predict(batch["pixel_values"], runtime=runtime)
+            )
             count = len(batch["metadata"])
             labels = batch["labels"].detach().cpu()
             if not isinstance(scores, torch.Tensor) or scores.shape != (count,):

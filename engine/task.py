@@ -5,6 +5,10 @@ Checkpoint state must use tensors and ordinary Python values compatible with
 torch.load(weights_only=True). Larger scores always mean more likely fake.
 Collators return pixel_values, labels, metadata and filter failed (None) samples;
 an entirely failed batch returns None. See data.loader.ImageCollator for an example.
+
+An adapter may additionally implement predict_batch(batch, runtime=...) when
+the original algorithm observes labels or metadata during evaluation. The
+evaluator prefers this route; image-only adapters retain predict(images).
 """
 
 from pathlib import Path
