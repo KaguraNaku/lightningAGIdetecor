@@ -1,0 +1,51 @@
+# Frozen native CLIP-L14 + full-rank ZCA statistical calibration, no optimizer.
+# Pairing uses first fake-parent ID and exact filename, including native real reuse.
+# Manifests define the available inventory; no legacy corpus sampling replay claim.
+# Parquet rows must declare native_frame_path for filename pairing.
+# CPU/fp32 fixture workflow is audited separately. Full100-batch FFPP and GPU/AMP
+# are unverified. Raw primary patch matrices and fitted inputs remain on disk.
+version: 1
+seed: 1024
+runtime:
+  device: cpu
+  precision: fp32
+  allow_tf32: false
+  log_level: INFO
+  output_dir: /absolute/path/to/hybrid-zca-runs
+model:
+  factory: detectors.hybrid_zca.experiment:create_task
+  backbone_id: openai/clip-vit-large-patch14
+  revision: 32bd64288804d66eefd0ccbe215aa642df71cc41
+  local_files_only: true
+  attention_implementation: sdpa
+  layers: [11, 14, 16, 19, 21]
+  memory_size: 2048
+  pair_shuffle: true
+loader:
+  # Training batch_size counts pairs; four pairs produce eight images.
+  batch_size: 4
+  num_workers: 0
+  persistent_workers: false
+  # The method sampler owns a seed-explicit pair permutation and tail dropping.
+  shuffle: false
+inputs:
+  training:
+    dataset: FaceForensics++
+    split: train
+    manifest: ${MANIFEST_ROOT}/FaceForensics++-train-8frames.jsonl
+  celeb_df_v2_test:
+    dataset: Celeb-DF-v2
+    split: test
+    manifest: ${MANIFEST_ROOT}/Celeb-DF-v2-test-8frames.jsonl
+    batch_size: 32
+fit:
+  input: training
+  calibration_batches: 100
+  feature_budget_mib: 256
+  patch_budget_gib: 1
+  disk_reserve_gib: 8
+evaluation:
+  inputs: [celeb_df_v2_test]
+  threshold: 0.5
+  video_aggregation: mean
+  group_by: []
