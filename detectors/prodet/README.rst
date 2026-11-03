@@ -48,9 +48,9 @@ Verified mathematical scope
 * Full32x3x256x256 evaluation matches B4/projection intermediates,all outputs,
   unchanged model states andCPU RNG. The inputs are declared synthetic normalized
   tensors,not evidence of native dataset preprocessing orhistorical scores.
-* Thirty-five related CPU tests pass, including six component, four synthesis,
-  eight source-protocol and seven Dataset/worker contracts. They are separate
-  from original-source numerical comparisons.
+* Forty-one related CPU tests pass, including six component, four synthesis,
+  eight source-protocol, seven Dataset/worker and six checkpoint contracts.
+  They are separate from original-source numerical comparisons.
 
 Specialized synthesis scope
 --------------------------
@@ -157,6 +157,42 @@ Commands, raw native/candidate epochs, generation/selection receipts, resource
 records and negative run are indexed in
 ``experiments/detector_rewrite/prodet_dataset_audit_20261104.json``.
 
+Strict complete checkpoint transport
+------------------------------------
+
+``checkpoint.py`` requires all 782 native Detector entries with exact CPU dtypes,
+shapes and native strides, including BN counters and the unused backbone head.
+Partial backbones, missing buffers, mixed prefixes, sparse/meta tensors,
+nonfinite values and implicit dtype/layout repair are rejected. Bare states,
+original Trainer ``state_dict`` envelopes and uniform DDP prefixes use the
+existing safe weights-only reader. Original epoch/optimizer/scheduler metadata
+is retained in the source file and is not resumed by this weights importer.
+
+Callers must explicitly supply ``selected_recipe()``: the linear construction,
+drift/mixing switches and zero-based operation-start epoch are nonpersistent
+and cannot be inferred from tensor shapes. This API transports weights under
+that declared recipe; it does not establish how a historical model was trained.
+A future Task must validate its own saved construction/preprocessing metadata.
+Restoration uses a meta constructor plus independent validated CPU clones,
+preserving all 488 trainable parameters, native order, input isolation and CPU
+RNG. It loads no ImageNet asset and does not fall back to random parameters.
+
+The retained actual-source full native constructed checkpoint was imported,
+freshly serialized to a new complete state file, then reloaded. Both whole
+32x3x256x256 FP32/default-MKLDNN evaluations match all original seven outputs,
+B4/projection sites, all 782 unchanged states, parameter flags/order and RNG.
+The new ZIP serialization was actually exercised; no older archive substitutes
+for that write. Inputs are declared normalized synthetic tensors and weights
+are constructed ImageNet-B4 plus random ProDet heads. This is not historical
+trained-score alignment, a Task conversion/CLI test, CNN backward or a full run.
+
+The six full-geometry contracts retain their raw format/negative-case files and
+verify strict import/restore, isolated storage and nonpersistent recipe guards.
+No numerical worker failed in this stage. A prelaunch hook-closure lint warning
+was fixed before launch and recorded separately. Raw checkpoints, commands,
+reference lineage, outputs and capped resource receipts are indexed in
+``experiments/detector_rewrite/prodet_checkpoint_audit_20261104.json``.
+
 The initial full-constructor harness failed onlist-versus-tuple stride reprs.
 The correction canonicalizes only that representation andchecks every numeric
 convolution attribute;the source failure andraw checkpoint remain preserved.
@@ -166,10 +202,11 @@ It does not claim a new ZIP serialization was exercised onthe reuse path.
 Pending integration
 -------------------
 
-There is no unified ProDet Task,checkpoint importer,Trainer orpreset yet.
+There is no unified ProDet Task,Trainer orpreset yet. The strict Detector weight
+transport above is not a unified Task envelope or a training-resume importer.
 The Dataset requires explicit real author source/neighbor assets before an
 author-data run. Actual full-CNN gradients at the selected96-image specialized
-geometry,fitted/restore/evaluate CLI andthe complete433 CPU suite remain pending.
+geometry,fitted/restore/evaluate CLI andthe complete439 CPU suite remain pending.
 The last complete386-test pass predates these additions. No full experiment,
 historical trained detector orGPU AMP reproduction is claimed.
 
