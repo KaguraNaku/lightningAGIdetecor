@@ -29,8 +29,9 @@ Its original collation was executed ondeclared synthetic marker planes. The
 selected whole-face SBI/soft-BI synthesis and equal, ordered quadruple collation
 are now independently implemented in ``generation.py``. ``ProDetSourcePlan``
 now prepares filesystem source identities, pairing, hashed landmark/neighbor
-bindings and complete-source split checks. It does not decode or expose dataset
-``__getitem__``; that integration still remains. Keep these recipes distinct;
+bindings and complete-source split checks. ``ProDetDataset`` now composes that
+plan with native image/NPY decoding and generation through the shared loader.
+The unified Task/Trainer integration still remains. Keep these recipes distinct;
 do not flatten specialized domain
 labels to binary loss targets orsilently describe a wiring repair as untouched
 ``train.py`` behavior. The source epoch loop is0..20 inclusive21 epochs.
@@ -47,9 +48,9 @@ Verified mathematical scope
 * Full32x3x256x256 evaluation matches B4/projection intermediates,all outputs,
   unchanged model states andCPU RNG. The inputs are declared synthetic normalized
   tensors,not evidence of native dataset preprocessing orhistorical scores.
-* Twenty-eight related CPU tests pass, including six component, four synthesis
-  and eight source-protocol contracts. They are separate from original-source
-  numerical comparisons.
+* Thirty-five related CPU tests pass, including six component, four synthesis,
+  eight source-protocol and seven Dataset/worker contracts. They are separate
+  from original-source numerical comparisons.
 
 Specialized synthesis scope
 --------------------------
@@ -110,13 +111,51 @@ it passed a string to a Path-only helper; both runs and snapshots are retained.
 
 The implicit original pickle files were absent at the checked repository-root,
 ``training`` and ``training/dataset`` locations. No author neighbor corpus was
-invented. Actual asset acquisition/conversion, shape/finite landmark decoding,
-dataset/worker synthesis and unified loading remain pending. The original unused
+invented. Actual author asset acquisition/conversion and Task wiring remain
+pending. The Dataset now validates shape/finite numeric NPY arrays and supports
+worker synthesis on explicitly bound filesystem inputs. The original unused
 ``landmark_dict`` pickle read is not reproduced in production.
 
 Commands, raw fixture pools, native prefix/filter outputs, test receipts and the
 negative run are indexed in
 ``experiments/detector_rewrite/prodet_protocol_audit_20261104.json``.
+
+Filesystem Dataset and worker preparation
+----------------------------------------
+
+``ProDetDataset`` binds the complete source plan, validates every real NPY file
+(including unused/excluded sources), reads native OpenCV BGR-to-RGB/cubic256
+images and casts unscaled NPY coordinates to int32. It repeats the background
+landmark read after the BI foreground selection, preserving source IO order.
+Each requested quadruple retains source bindings, selected foreground, raw
+Python/NumPy RNG, mask/view fingerprints and explicit short-list clamp status.
+``ProDetDataCollator`` carries those receipts and domain-ordered view identities
+through the existing loader; float domain targets stay separate from binary
+coverage labels. Decode/hash/control-file failures keep the requested identity
+and fail after one attempt. No recursive or neighboring fallback is introduced.
+
+The original specialized constructor/getitem/collator and original filesystem
+decoder plus original torchvision ToTensor/Normalize definitions were executed
+on declared PNG/NPY fixtures. Windows identity strings were explicitly mapped to
+their POSIX files, and upstream discovery was replaced with the declared pool.
+A seeded shuffled epoch matches all 64 quadruples/256 output views in full
+24,24 and final16 quadruple batches: pixels, masks, float targets, sample indices,
+foreground choices, constructor RNG and per-batch Python/NumPy/Torch RNG are
+exact. Source lists include native clamping and the excluded281 group. Both raw
+epochs, varied input PNG sizes, float64+.25/int32 NPY files and config/source
+snapshots are retained. This is fixture data, not an author corpus or score test.
+
+Seven Dataset contracts verify complete view coverage, repeated seeded spawn
+loading, malformed unused NPY files, mutated bindings, undecodable requested
+images, collator identities and fatal worker-to-parent error propagation. The
+one-worker workflow checks conditional replay under remake worker seeding;
+it does not reproduce original upstream or eight-worker global RNG. The initial
+native harness failed on a missing ``Tensor`` annotation binding before data
+iteration. Only that reference namespace was corrected; the failed run remains.
+
+Commands, raw native/candidate epochs, generation/selection receipts, resource
+records and negative run are indexed in
+``experiments/detector_rewrite/prodet_dataset_audit_20261104.json``.
 
 The initial full-constructor harness failed onlist-versus-tuple stride reprs.
 The correction canonicalizes only that representation andchecks every numeric
@@ -127,9 +166,10 @@ It does not claim a new ZIP serialization was exercised onthe reuse path.
 Pending integration
 -------------------
 
-There is no unified ProDet Task,checkpoint importer,source-data adapter,Trainer
-orpreset yet. Actual full-CNN gradients at the selected96-image specialized
-geometry,fitted/restore/evaluate CLI andthe complete426 CPU suite remain pending.
+There is no unified ProDet Task,checkpoint importer,Trainer orpreset yet.
+The Dataset requires explicit real author source/neighbor assets before an
+author-data run. Actual full-CNN gradients at the selected96-image specialized
+geometry,fitted/restore/evaluate CLI andthe complete433 CPU suite remain pending.
 The last complete386-test pass predates these additions. No full experiment,
 historical trained detector orGPU AMP reproduction is claimed.
 
