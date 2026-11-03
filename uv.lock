@@ -175,6 +175,15 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/28/f4/f8949b18ec1df2ef05fc2ea1d1dd82ff2d050b8704b7d0d088017315c221/dlib-20.0.0.tar.gz", hash = "sha256:9ab6a6fe113cc36a20c3f611c57fa6a07f18d1169bd04efb85c32e21b23b7d2b", size = 3310015, upload-time = "2025-05-28T01:22:16.141Z" }
 
 [[package]]
+name = "einops"
+version = "0.8.1"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/e5/81/df4fbe24dff8ba3934af99044188e20a98ed441ad17a274539b74e82e126/einops-0.8.1.tar.gz", hash = "sha256:de5d960a7a761225532e0f1959e5315ebeafc0cd43394732f103ca44b9837e84", size = 54805, upload-time = "2025-02-09T03:17:00.434Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/87/62/9773de14fe6c45c23649e98b83231fffd7b9892b6cf863251dc2afa73643/einops-0.8.1-py3-none-any.whl", hash = "sha256:919387eb55330f5757c6bea9165c5ff5cfe63a642682ea788a6d472576d81737", size = 64359, upload-time = "2025-02-09T03:17:01.998Z" },
+]
+
+[[package]]
 name = "exceptiongroup"
 version = "1.3.1"
 source = { registry = "https://pypi.org/simple" }
@@ -489,6 +498,9 @@ fwa = [
     { name = "scikit-image", version = "0.25.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
     { name = "scikit-image", version = "0.26.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
 ]
+temporal = [
+    { name = "einops" },
+]
 
 [package.dev-dependencies]
 dev = [
@@ -499,6 +511,7 @@ dev = [
 requires-dist = [
     { name = "albumentations", specifier = "==1.3.1" },
     { name = "dlib", marker = "extra == 'fwa'", specifier = "==20.0.0" },
+    { name = "einops", marker = "extra == 'temporal'", specifier = "==0.8.1" },
     { name = "numpy", specifier = ">=1.24" },
     { name = "opencv-python-headless", specifier = "==4.11.0.86" },
     { name = "pillow", specifier = ">=10" },
@@ -510,7 +523,7 @@ requires-dist = [
     { name = "torch", specifier = ">=2.9.1" },
     { name = "transformers", specifier = ">=4.57.3" },
 ]
-provides-extras = ["fwa"]
+provides-extras = ["fwa", "temporal"]
 
 [package.metadata.requires-dev]
 dev = [{ name = "ruff", specifier = ">=0.15.17" }]

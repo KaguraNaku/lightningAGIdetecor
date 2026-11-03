@@ -19,6 +19,7 @@ check-data = "data.cli:check_main"
 
 [project.optional-dependencies]
 fwa = ["dlib==20.0.0", "scikit-image>=0.25.2,<0.27"]
+temporal = ["einops==0.8.1"]
 
 [tool.setuptools.packages.find]
 include = ["backbones*", "detectors*", "data*", "configs*", "engine*"]
