@@ -5,6 +5,7 @@ stores an already available callable without importing other backends.
 """
 
 LOADERS = {
+    ("ftcn_resnet50", "vision"): ("backbones.models.ftcn_resnet", "load_ftcn_resnet50"),
     ("i3d_resnet50", "vision"): ("backbones.models.i3d_resnet", "load_i3d_resnet50"),
     ("lsda_b4", "vision"): ("backbones.models.lsda_b4", "load_lsda_b4"),
     ("lsda_iresnet100", "vision"): ("backbones.models.lsda_iresnet100", "load_lsda_iresnet100"),
