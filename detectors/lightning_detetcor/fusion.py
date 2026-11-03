@@ -9,31 +9,30 @@ from torch import nn
 class LDAFusion(nn.Module):
     """Affine score head with fitted statistics in ``state_dict`` buffers.
 
-    Columns are global and spatial scores; real=0, fake=1. Calibration uses
+    Columns are Global and Mean+Std branch scores; real=0, fake=1. Calibration uses
     video means, ddof=0 class covariances with equal class weight, and source
-    real-class std+epsilon. Covariance shrinkage eta and the spatial arm are
-    frozen constructor settings. Negative Fisher coefficients are allowed.
-    Source fold selection belongs in ``fusion_calibration``, outside inference.
+    real-class std+epsilon. Only epsilon*I is added for numerical stability;
+    no covariance shrinkage or arm selection is performed. Negative Fisher
+    coefficients are allowed. Source validation lives outside inference.
     """
 
-    VERSION = 1
+    VERSION = 2
 
     def __init__(self, config):
         super().__init__()
-        self.eta = float(config.get("eta", 0.0))
+        if set(config) - {"eps", "arm"}:
+            raise ValueError("unsupported fusion configuration; shrinkage was removed")
         self.epsilon = float(config.get("eps", 1e-6))
-        self.arm = config.get("arm")
-        if not math.isfinite(self.eta) or not 0 <= self.eta <= 1:
-            raise ValueError("eta must be finite and between zero and one")
+        self.arm = "mean_std"
         if not math.isfinite(self.epsilon) or self.epsilon <= 0:
             raise ValueError("eps must be finite and positive")
-        if self.arm not in (None, "mean", "mean_std"):
-            raise ValueError("arm must be mean, mean_std or None")
+        if config.get("arm", "mean_std") != "mean_std":
+            raise ValueError("fusion is fixed to Global + (Mean+Std)")
         self.score_id = None
         for name in ("weights", "normalized_weights", "real_mean", "delta"):
             self.register_buffer(name, torch.zeros(2, dtype=torch.float64))
         self.register_buffer("real_scale", torch.ones(2, dtype=torch.float64))
-        for name in ("within_covariance", "shrunk_covariance"):
+        for name in ("within_covariance", "regularized_covariance"):
             self.register_buffer(name, torch.zeros(2, 2, dtype=torch.float64))
         self.register_buffer("bias", torch.zeros((), dtype=torch.float64))
         self.register_buffer("class_counts", torch.zeros(2, dtype=torch.int64))
@@ -48,7 +47,6 @@ class LDAFusion(nn.Module):
     def get_extra_state(self):
         return {
             "version": self.VERSION,
-            "eta": self.eta,
             "epsilon": self.epsilon,
             "arm": self.arm,
             "score_id": self.score_id,
@@ -56,9 +54,11 @@ class LDAFusion(nn.Module):
 
     def set_extra_state(self, state):
         expected = self.get_extra_state()
-        if not isinstance(state, dict) or not expected.keys() <= state.keys():
-            raise ValueError("saved fusion metadata is incomplete")
-        for name in ("version", "eta", "epsilon", "arm"):
+        if not isinstance(state, dict) or state.keys() != expected.keys():
+            raise ValueError(
+                "saved fusion metadata is incompatible; refit Global + (Mean+Std)"
+            )
+        for name in ("version", "epsilon", "arm"):
             if (
                 type(state[name]) is not type(expected[name])
                 or state[name] != expected[name]
@@ -106,16 +106,15 @@ class LDAFusion(nn.Module):
             raise ValueError("need at least two real and two fake calibration videos")
         mean = x[y == 0].mean(0)
         scale = x[y == 0].std(0, correction=0) + self.epsilon
-        real, fake = ((x - mean) / scale)[y == 0], ((x - mean) / scale)[y == 1]
+        standardized = (x - mean) / scale
+        real, fake = standardized[y == 0], standardized[y == 1]
         delta = fake.mean(0) - real.mean(0)
         r, f = real - real.mean(0), fake - fake.mean(0)
         covariance = (r.T @ r / len(r) + f.T @ f / len(f)) / 2
-        shrunk = (
-            (1 - self.eta) * covariance
-            + self.eta * covariance.diag().diag()
-            + self.epsilon * torch.eye(2, dtype=x.dtype, device=x.device)
+        regularized = covariance + self.epsilon * torch.eye(
+            2, dtype=x.dtype, device=x.device
         )
-        w = torch.linalg.solve(shrunk, delta)
+        w = torch.linalg.solve(regularized, delta)
         norm = w.abs().sum()
         if not bool(torch.isfinite(norm)) or float(norm) <= 1e-12:
             raise ValueError("no finite, nonzero Fisher direction")
@@ -129,7 +128,7 @@ class LDAFusion(nn.Module):
             "real_scale": scale,
             "delta": delta,
             "within_covariance": covariance,
-            "shrunk_covariance": shrunk,
+            "regularized_covariance": regularized,
             "class_counts": counts,
         }
         converted = {
