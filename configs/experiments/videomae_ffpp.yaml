@@ -2,8 +2,9 @@
 # Explicit local init_weights must match the pinned MCG-NJU schema.
 # No weight download is performed. Source landmarks are hash/absence-bound;
 # missing files yield native81xy zeros. Train AND validation are augmented.
-# Native full encoder numeric forward/backward,fitted CLI and full-corpus
-# reproduction remain unverified. Run heavy work only inside hard limits.
+# Full eager CPU forward and constructed-state evaluate CLI align with selected
+# source numerical bodies. Full backward,fitted CLI and full-corpus reproduction
+# remain unverified. Run heavy work only inside hard limits.
 # Retained activations require sufficient fresh storage plus8GiB reserve.
 version: 1
 seed: 1024
