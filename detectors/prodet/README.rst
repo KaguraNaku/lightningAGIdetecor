@@ -27,9 +27,11 @@ The separately defined ``SBIPlusV2Dataset`` instead collates24 quadruples into
 96 images inreal/blend/BI/deepfake order,withoriginal float labels0/1/3/2.
 Its original collation was executed ondeclared synthetic marker planes. The
 selected whole-face SBI/soft-BI synthesis and equal, ordered quadruple collation
-are now independently implemented in ``generation.py``. Filesystem pairing,
-landmark/nearest-neighbor sidecar binding and source split isolation remain
-unported. Keep these recipes distinct;do not flatten specialized domain
+are now independently implemented in ``generation.py``. ``ProDetSourcePlan``
+now prepares filesystem source identities, pairing, hashed landmark/neighbor
+bindings and complete-source split checks. It does not decode or expose dataset
+``__getitem__``; that integration still remains. Keep these recipes distinct;
+do not flatten specialized domain
 labels to binary loss targets orsilently describe a wiring repair as untouched
 ``train.py`` behavior. The source epoch loop is0..20 inclusive21 epochs.
 
@@ -45,8 +47,9 @@ Verified mathematical scope
 * Full32x3x256x256 evaluation matches B4/projection intermediates,all outputs,
   unchanged model states andCPU RNG. The inputs are declared synthetic normalized
   tensors,not evidence of native dataset preprocessing orhistorical scores.
-* Twenty related CPU tests pass, including six component and four new data
-  contracts. They are separate from the original-source numerical comparisons.
+* Twenty-eight related CPU tests pass, including six component, four synthesis
+  and eight source-protocol contracts. They are separate from original-source
+  numerical comparisons.
 
 Specialized synthesis scope
 --------------------------
@@ -69,12 +72,51 @@ final partial quadruple batches and refuses discarded or invalid sources.
 
 ``select_foreground`` consumes an already prepared ordered neighbor table. It
 does not load the original pickle sidecars or reproduce ``init_nearest``'s
-mutation-while-iterating filter. Those data-binding decisions still require an
-explicit protocol. Nonfinite/empty BI color-transfer results fail visibly;
+mutation-while-iterating filter. ``ProDetSourcePlan`` below provides that
+explicit binding/filter protocol. Nonfinite/empty BI color-transfer results fail visibly;
 there is no added epsilon, replacement source or silently repaired pixel rule.
 
 The data differential and reproducible commands are indexed in
 ``experiments/detector_rewrite/prodet_data_audit_20261104.json``.
+
+Source binding and pairing preparation
+-------------------------------------
+
+``protocol.py`` requires the exact complete train manifest, including sources
+excluded from sampling. Each image gets a byte hash; real sources require an
+explicit landmark path/hash and 256-coordinate declaration. Explicit original
+Windows path strings retain the native grouping and lexicographic ordering;
+actual files remain bound to relative POSIX paths inside the dataset root.
+Manifest order is declared input, not a reproduction of upstream corpus discovery
+or its shuffle RNG. The source's mandatory fake-group281 exclusion, 32 slots per
+group, real-slot modulo8 and short-list last-frame repetition are retained.
+
+The compiled JSON neighbor table binds the complete manifest hash/member order
+and keeps all original raw ordered edges. The original mutation-while-iterating
+filter is applied literally, including surviving same-video entries. No nearest
+search, deduplication or tail filtering is introduced. Every raw key/edge, even
+beyond the selected first three, must resolve to a real train member. An invalid
+or emptied table fails explicitly. Train/validation checks cover original frame
+IDs, paths and videos, including group281 and unused foreground sources; they
+do not claim subject or filesystem-alias separation.
+
+An original-source differential executes grouping, indexing, length, the intact
+getitem path-selection prefix, actual pickle-based ``init_nearest`` and foreground
+choice. Across 48 declared byte-fixture pools, all 3,072 pairs, 12,288 view bindings
+and 2,265 foreground choices/Python RNG states match. The 535 surviving same-video
+edges are retained as source behavior. These fixtures are not decoded images or
+landmarks. The first audit run failed only at its final source-hash check because
+it passed a string to a Path-only helper; both runs and snapshots are retained.
+
+The implicit original pickle files were absent at the checked repository-root,
+``training`` and ``training/dataset`` locations. No author neighbor corpus was
+invented. Actual asset acquisition/conversion, shape/finite landmark decoding,
+dataset/worker synthesis and unified loading remain pending. The original unused
+``landmark_dict`` pickle read is not reproduced in production.
+
+Commands, raw fixture pools, native prefix/filter outputs, test receipts and the
+negative run are indexed in
+``experiments/detector_rewrite/prodet_protocol_audit_20261104.json``.
 
 The initial full-constructor harness failed onlist-versus-tuple stride reprs.
 The correction canonicalizes only that representation andchecks every numeric
@@ -87,8 +129,8 @@ Pending integration
 
 There is no unified ProDet Task,checkpoint importer,source-data adapter,Trainer
 orpreset yet. Actual full-CNN gradients at the selected96-image specialized
-geometry,fitted/restore/evaluate CLI andthe complete418 CPU suite remain pending.
-The last complete386-method pass predates these additions. No full experiment,
+geometry,fitted/restore/evaluate CLI andthe complete426 CPU suite remain pending.
+The last complete386-test pass predates these additions. No full experiment,
 historical trained detector orGPU AMP reproduction is claimed.
 
 The full candidate graph's logical unique saved-storage estimates are
