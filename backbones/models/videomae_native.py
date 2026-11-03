@@ -166,3 +166,9 @@ class VideoMAEBackbone(nn.Module):
         if clips.ndim != 5 or tuple(clips.shape[1:]) != (16, 3, 224, 224):
             raise ValueError("VideoMAE-base needs NTCHW RGB224/T16 clips")
         return self.layernorm(self.encoder(self.embeddings(clips)))
+
+
+def load_videomae_base_native(model_id, **kwargs):
+    if model_id != "videomae_base_native" or kwargs:
+        raise ValueError("Expected fixed native VideoMAE-base without constructor overrides")
+    return VideoMAEBackbone()
