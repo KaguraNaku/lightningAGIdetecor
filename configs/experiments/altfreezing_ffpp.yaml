@@ -1,0 +1,53 @@
+# PREPARATION ONLY: native numerical/gradient and actual Task workflow gates pending.
+# Native post-forward freezing: spatial atcount%21==0, temporal atcount%21==1.
+# Do not move freezing before the backbone or freeze BatchNorm statistics.
+# Uses shared I3D all-frame clips/pixel augmentation, probability BCE, batch8.
+# CPU saved activations remain on disk;20GiB is a retention budget, not a claim
+# that a full11-epoch run fits that budget. No full corpus/GPU/AMP reproduction.
+version: 1
+seed: 1024
+runtime:
+  device: cpu
+  precision: fp32
+  allow_tf32: false
+  log_level: INFO
+  output_dir: /absolute/path/to/altfreezing-runs
+model:
+  factory: detectors.altfreezing.experiment:create_task
+  init_weights: /absolute/path/to/I3D_8x8_R50.pth
+  selection_seed: 1024
+loader:
+  batch_size: 8
+  num_workers: 0
+  persistent_workers: false
+  shuffle: false
+inputs:
+  training:
+    dataset: FaceForensics++
+    split: train
+    manifest: ${MANIFEST_ROOT}/FaceForensics++-train-all-frames.jsonl
+    shuffle: true
+  validation:
+    dataset: FaceForensics++
+    split: val
+    manifest: ${MANIFEST_ROOT}/FaceForensics++-val-all-frames.jsonl
+  celeb_df_v2_test:
+    dataset: Celeb-DF-v2
+    split: test
+    manifest: ${MANIFEST_ROOT}/Celeb-DF-v2-test-all-frames.jsonl
+fit:
+  input: training
+  validation_input: validation
+  epochs: 11
+  monitor: clip.auc
+  optimizer: adam
+  learning_rate: 0.0002
+  weight_decay: 0.0005
+  disk_saved_tensors: true
+  saved_activation_budget_gib: 20
+  disk_reserve_gib: 8
+evaluation:
+  inputs: [validation, celeb_df_v2_test]
+  threshold: 0.5
+  video_aggregation: mean
+  group_by: []
