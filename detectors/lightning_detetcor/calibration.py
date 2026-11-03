@@ -12,9 +12,11 @@ from .search_layers import search_layers
 
 def mapping_id(detector):
     """Fingerprint the encoder identity, layer selection and fitted mapping."""
-    identity = getattr(
-        detector.backbone, "model_id", type(detector.backbone).__qualname__
-    )
+    identity = getattr(detector.backbone, "feature_id", None)
+    if identity is None:
+        identity = getattr(
+            detector.backbone, "model_id", type(detector.backbone).__qualname__
+        )
     fingerprint = hashlib.sha256(identity.encode())
     mapping = detector.mapping
     for tensor in (
