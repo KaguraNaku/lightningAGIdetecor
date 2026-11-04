@@ -31,7 +31,9 @@ are now independently implemented in ``generation.py``. ``ProDetSourcePlan``
 now prepares filesystem source identities, pairing, hashed landmark/neighbor
 bindings and complete-source split checks. ``ProDetDataset`` now composes that
 plan with native image/NPY decoding and generation through the shared loader.
-The unified Task/Trainer integration still remains. Keep these recipes distinct;
+The unified Task and dedicated Trainer are now prepared, with native PNG
+inference/conversion/evaluation verified; actual full-CNN fitting remains pending.
+Keep these recipes distinct;
 do not flatten specialized domain
 labels to binary loss targets orsilently describe a wiring repair as untouched
 ``train.py`` behavior. The source epoch loop is0..20 inclusive21 epochs.
@@ -48,9 +50,11 @@ Verified mathematical scope
 * Full32x3x256x256 evaluation matches B4/projection intermediates,all outputs,
   unchanged model states andCPU RNG. The inputs are declared synthetic normalized
   tensors,not evidence of native dataset preprocessing orhistorical scores.
-* Forty-one related CPU tests pass, including six component, four synthesis,
-  eight source-protocol, seven Dataset/worker and six checkpoint contracts.
-  They are separate from original-source numerical comparisons.
+* The unchanged 41 related CPU contracts and ten new Task/Trainer contracts
+  pass. The initial combined 51-test attempt had one test Runtime fixture error;
+  all ten new tests passed after correcting its device type. This is a checked
+  union of results, not a second successful complete 51-test run. Native
+  numerical comparisons remain separate.
 
 Specialized synthesis scope
 --------------------------
@@ -172,7 +176,7 @@ Callers must explicitly supply ``selected_recipe()``: the linear construction,
 drift/mixing switches and zero-based operation-start epoch are nonpersistent
 and cannot be inferred from tensor shapes. This API transports weights under
 that declared recipe; it does not establish how a historical model was trained.
-A future Task must validate its own saved construction/preprocessing metadata.
+The Task layer validates its saved construction/preprocessing metadata separately.
 Restoration uses a meta constructor plus independent validated CPU clones,
 preserving all 488 trainable parameters, native order, input isolation and CPU
 RNG. It loads no ImageNet asset and does not fall back to random parameters.
@@ -193,6 +197,54 @@ was fixed before launch and recorded separately. Raw checkpoints, commands,
 reference lineage, outputs and capped resource receipts are indexed in
 ``experiments/detector_rewrite/prodet_checkpoint_audit_20261104.json``.
 
+Unified Task and Trainer preparation
+-----------------------------------
+
+``ProDetTask`` keeps ``ExperimentTask -> Detector -> Backbone`` and requires an
+explicit ``native_entrypoint`` or ``specialized_quadruples`` profile. It saves
+typed construction, preprocessing roles, probability semantics and the optional
+neighbor identity. Restoring complete Task weights needs no old initialization
+asset; conflicting recipe/preprocessing/profile metadata fails. The specialized
+training sidecar is opened only when preparing training data. The preset
+``configs/experiments/prodet_ffpp.yaml`` declares the intended quadruple wiring
+repair and placeholders for genuine source assets.
+
+``ProDetImageDataset`` owns filesystem OpenCV decoding for the generic entrypoint,
+validation and evaluation. The original decoder/getitem/augmentation/torchvision
+and collator were executed against Task preprocessing for three seeds and three
+roles, totaling288 declared PNG views. All pixels, labels and Python/NumPy/Torch
+RNG match. Validation uses original test-mode clean pixels as formal testing does;
+the remake source-val split is an explicit selection policy. Fixtures reuse the
+same files between transform roles and do not constitute an isolated training
+experiment. Native parquet pixel parity is not established by this PNG audit.
+
+An actual original full ProDet model at its constructed native checkpoint was
+evaluated on32 of those PNG views. Its probabilities match the Task, a freshly
+converted/restored engine Task envelope and a separate ``experiment.py evaluate``
+process exactly. Image32/video4 metrics match independent sklearn calculations
+and all six CSV/JSON cells. These fixture labels and constructed heads are not
+historical trained-score or full-corpus evidence.
+
+``ProDetTrainer`` preserves native zero-based epochs (default0..20 inclusive21),
+Adam parameter order and complete batch objectives. Specialized float0/1/3/2
+targets stay separate from binary coverage labels; formal generic entrypoint
+targets remain int64 binary. Generated-source receipts and exact saved-tensor
+transport are retained per batch. CPU fitting requires fp32, batch24 (96 images
+for specialized data), validation32, final partial batches and adequate persistent
+storage for the entire retained run plus8GiB floor and4GiB checkpoint headroom.
+The capacity estimate is based on the full graph's logical saved bytes with25%
+archive allowance; it is not a measured RAM/disk peak. Insufficient space writes
+a negative preflight receipt before model movement/optimizer/training. GPU/AMP
+training and exact optimizer/RNG resume remain unsupported pending validation.
+
+Ten contracts cover metadata/readiness, both data profiles, nonpersistent epoch,
+unmodified float targets, full488-parameter Adam order and a preflight proving
+training does not start with insufficient storage. Loss-route/epoch controls do
+not substitute for numerical full-B96 CNN gradients. The first combined test
+attempt and initial Task-audit path-type error are retained with corrected runs.
+Raw inputs/outputs/configs, commands and exact validation scopes are indexed in
+``experiments/detector_rewrite/prodet_task_audit_20261104.json``.
+
 The initial full-constructor harness failed onlist-versus-tuple stride reprs.
 The correction canonicalizes only that representation andchecks every numeric
 convolution attribute;the source failure andraw checkpoint remain preserved.
@@ -202,11 +254,13 @@ It does not claim a new ZIP serialization was exercised onthe reuse path.
 Pending integration
 -------------------
 
-There is no unified ProDet Task,Trainer orpreset yet. The strict Detector weight
-transport above is not a unified Task envelope or a training-resume importer.
+The unified Task/Trainer/preset are prepared and the inference/conversion/CLI
+workflow is verified on declared native PNG fixtures. The method remains pending
+the actual full native fit/gradient and complete-regression gates. Detector
+weight import and Task state restore do not resume optimizer/RNG training state.
 The Dataset requires explicit real author source/neighbor assets before an
 author-data run. Actual full-CNN gradients at the selected96-image specialized
-geometry,fitted/restore/evaluate CLI andthe complete439 CPU suite remain pending.
+geometry,the fitted restore/evaluate workflow andthe complete449 CPU suite remain pending.
 The last complete386-test pass predates these additions. No full experiment,
 historical trained detector orGPU AMP reproduction is claimed.
 
