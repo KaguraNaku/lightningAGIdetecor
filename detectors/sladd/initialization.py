@@ -20,3 +20,9 @@ def create_detector(pretrained):
         "synthesizer": synthesizer.netG.initialization,
     }
     return detector
+
+
+def _checkpoint_structure():
+    """Fixed selected topology without loading assets; not a training initializer."""
+    backbone = load_backbone("xception_sladd", "vision", model_type="xception_sladd")
+    return SLADDDetector(backbone, SLADDSynthesizer._checkpoint_shape())

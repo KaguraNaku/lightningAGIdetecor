@@ -91,6 +91,13 @@ class SLADDSynthesizer(nn.Module):
         super().__init__()
         self.netG = SynthesisTransfer(pretrained)
 
+    @classmethod
+    def _checkpoint_shape(cls):
+        model = cls.__new__(cls)
+        nn.Module.__init__(model)
+        model.netG = SynthesisTransfer._checkpoint_shape()
+        return model
+
     @staticmethod
     def parse(image, region, landmarks, fake_mask):
         return parse_region(image, region, landmarks, fake_mask)

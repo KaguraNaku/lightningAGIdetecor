@@ -149,6 +149,21 @@ class SynthesisTransfer(nn.Module):
             self.model.iniconv = nn.Conv2d(in_channels, 32, 3, 2, bias=False)
             nn.init.xavier_normal_(self.model.iniconv.weight.data, gain=0.02)
 
+    @classmethod
+    def _checkpoint_shape(cls):
+        """Selected topology only; complete state must be assigned before use.
+
+        Restore callers construct this on meta. ImageNet reads and the original
+        duplicate stem initialization are unnecessary when every tensor is
+        supplied by a validated full checkpoint. Native initialization above
+        remains the only path for starting a new source-profile experiment.
+        """
+        model = cls.__new__(cls)
+        nn.Module.__init__(model)
+        model.model = SynthesisEncoder()
+        model.initialization = {"operation": "shape_only_for_complete_checkpoint"}
+        return model
+
     def features(self, images):
         return self.model.features(images)
 
