@@ -41,7 +41,7 @@ fit:
   optimizer: adam
   learning_rate: 0.0002
   weight_decay: 0.0005
-  disk_saved_tensors: true
+  disk_saved_tensors: false
   disk_reserve_gib: 8
 evaluation:
   inputs:

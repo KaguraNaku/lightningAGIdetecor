@@ -1,4 +1,4 @@
-"""Native whole-batch ProDet objectives/epochs with retained CPU activations."""
+"""Native whole-batch ProDet: ordinary CUDA autograd or retained CPU audit activations."""
 
 from contextlib import contextmanager
 from pathlib import Path
@@ -123,6 +123,10 @@ class ProDetTrainer(ImageClassificationTrainer):
                     "sources": receipts,
                 },
             )
+        if runtime.device.type == "cuda":
+            # Ordinary GPU autograd owns activations; never retain audit tensors on disk.
+            yield
+            return
         store = DiskSavedTensors(
             self.model, Path(output) / f"batch-{step:06d}-saved-tensors"
         )
@@ -171,9 +175,9 @@ class ProDetTrainer(ImageClassificationTrainer):
             raise ValueError(
                 "Use a fresh ProDet Trainer for a new fit;exact optimizer/RNG resume is unsupported"
             )
-        if runtime.device.type != "cpu" or runtime.precision != "fp32":
+        if runtime.device.type not in {"cpu", "cuda"} or runtime.precision != "fp32":
             raise ValueError(
-                "The currently validated ProDet alignment profile is CPU fp32;GPU/AMP training pending"
+                "ProDet fitting supports CPU audit or CUDA FP32;AMP remains unverified"
             )
         if (
             loader.batch_size != 24
@@ -185,6 +189,28 @@ class ProDetTrainer(ImageClassificationTrainer):
         ):
             raise ValueError(
                 "Native ProDet retains whole training24 and validation32 batches,including final partial"
+            )
+        if runtime.device.type == "cuda":
+            if settings.get("disk_saved_tensors", False):
+                raise ValueError("CUDA ProDet uses native GPU autograd, not CPU audit disk transport")
+            self.validate_inputs(loader, validation_loader, settings.get("monitor", "video.auc"))
+            output = Path(output_dir)
+            output.mkdir(parents=True, exist_ok=True)
+            if any(output.iterdir()):
+                raise FileExistsError("ProDet fitting requires fresh output;preserve existing runs")
+            atomic_save(output / "source-data-protocol.json", {
+                "data_profile": self.data_profile,
+                "train": loader.dataset.selection_receipt(),
+                "validation": validation_loader.dataset.selection_receipt(),
+                "native_epochs": "zero-based0..20 inclusive21 by default",
+                "activation_transport": "native CUDA autograd;no retained CPU audit tensor files",
+                "source_only_selection": True,
+                "exact_training_resume_supported": False,
+            })
+            return super().fit(
+                loader, validation_loader=validation_loader, runtime=runtime,
+                settings={"epochs": 21, "learning_rate": 2e-4, "weight_decay": 5e-4, **settings},
+                output_dir=output,
             )
         if settings.get("disk_saved_tensors", True) is not True:
             raise ValueError(
