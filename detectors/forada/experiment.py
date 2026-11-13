@@ -1,5 +1,6 @@
 """Explicit author checkpoints or fresh CLIP initialization, no network fallback."""
 from importlib.resources import files
+from pathlib import Path
 import json
 import torch
 from backbones.load_backbone import load_backbone
@@ -17,6 +18,7 @@ DEFAULT_CLIP = dict(embed_dim=768, image_resolution=224, vision_layers=24,
                     transformer_heads=12, transformer_layers=12)
 
 def read_checkpoint(path):
+    path = Path(path).expanduser().resolve()
     try:
         model = torch.jit.load(str(path), map_location="cpu")
         weights = model.state_dict()
