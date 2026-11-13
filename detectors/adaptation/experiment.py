@@ -8,7 +8,7 @@ import torch
 from torch import nn
 from torch.utils.data import Sampler
 
-from engine.runtime import create_task
+from engine.runtime import create_task as create_native_task
 
 ALLOWED = {'xception', 'f3net', 'core', 'ucf', 'prodet', 'effort', 'gend', 'forada'}
 DOMAINS = {'real': 0, 'FF_Deepfakes': 1, 'FF_Face2Face': 2,
@@ -103,7 +103,7 @@ class UFDAdaptationTask:
                 raise ValueError('Unsupported UFD adaptation state')
             self.base_model = deepcopy(state['base_model'])
             self.adaptation = deepcopy(state['adaptation'])
-            self.task = create_task(self.base_model, state=state['base_task'])
+            self.task = create_native_task(self.base_model, state=state['base_task'])
         else:
             self.base_model = deepcopy(settings['base_model'])
             method = self.base_model['factory'].split('.')[1]
@@ -123,7 +123,7 @@ class UFDAdaptationTask:
                 checkpoint = torch.load(path, map_location='cpu', weights_only=True, mmap=True)
                 if checkpoint['model']['factory'] != self.base_model['factory']:
                     raise ValueError('Parent method differs')
-                self.task = create_task(checkpoint['model'], state=checkpoint['task'])
+                self.task = create_native_task(checkpoint['model'], state=checkpoint['task'])
                 self.adaptation['parent'] = {'path': str(path), 'sha256': actual,
                     'selected_epoch': checkpoint['fit_report']['best_epoch']}
                 if method == 'ucf':
@@ -132,7 +132,7 @@ class UFDAdaptationTask:
             else:
                 if method == 'ucf':
                     self.base_model.update(specific_classes=6, specific_label_map=dict(DOMAINS))
-                self.task = create_task(self.base_model)
+                self.task = create_native_task(self.base_model)
             self.task.origin['UFD_adaptation'] = deepcopy(self.adaptation)
         self.method = self.base_model['factory'].split('.')[1]
 
