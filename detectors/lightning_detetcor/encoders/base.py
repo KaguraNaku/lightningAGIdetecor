@@ -11,8 +11,9 @@ from torch.nn import functional as F
 class FrozenVisionEncoder(nn.Module):
     """A configured per-block readout with native weights registered once.
 
-    forward returns (N, layers, channels); readouts returns all four feature
-    views from a single backbone pass. Mean is L2-normalized; std is the raw
+    forward returns (N, layers, channels), or a global/mean dictionary when
+    readout="global_mean"; readouts returns all four feature views from a single
+    backbone pass. Mean is L2-normalized; std is the raw
     sqrt(clamp(E[x²]-E[x]²,min=1e-6)); mean_std concatenates these two vectors.
     This matches the frozen experiments and does not redefine native pooling.
     """
@@ -25,7 +26,7 @@ class FrozenVisionEncoder(nn.Module):
         super().__init__()
         if vision_model.config.model_type != self.MODEL_TYPE:
             raise ValueError(f"{type(self).__name__} requires {self.MODEL_TYPE}")
-        if readout not in ("global", "mean", "std", "mean_std"):
+        if readout not in ("global", "mean", "std", "mean_std", "global_mean"):
             raise ValueError("unknown vision readout")
         self.model = vision_model
         self.model_id = str(
@@ -117,6 +118,8 @@ class FrozenVisionEncoder(nn.Module):
         return {name: torch.stack(rows, dim=1) for name, rows in values.items()}
 
     def forward(self, pixel_values):
+        if self.readout == "global_mean":
+            return self._extract(pixel_values, ("global", "mean"))
         return self._extract(pixel_values, (self.readout,))[self.readout]
 
     def readouts(self, pixel_values):

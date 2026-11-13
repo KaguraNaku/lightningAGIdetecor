@@ -58,14 +58,16 @@ class FeatureMapping(nn.Module):
             raise ValueError(
                 f"features must have shape (N, {expected[0]}, {expected[1]})"
             )
-        if not torch.isfinite(features).all():
-            raise ValueError("features must be finite")
-        return features.to(self.means)
+        for layer in range(self.layers_count):
+            if not torch.isfinite(features[:, layer]).all():
+                raise ValueError("features must be finite")
+        # Convert one layer at a time; avoid an FP64 copy of the whole cache.
+        return features
 
     @torch.no_grad()
-    def fit(self, features, labels):
+    def fit(self, features, labels, *, selected_only=False):
         features = self._prepare_features(features)
-        labels = labels.to(device=features.device)
+        labels = labels.to(device=self.means.device)
         if labels.shape != (len(features),):
             raise ValueError("labels must contain one value per sample")
         if not ((labels == 0) | (labels == 1)).all():
@@ -74,8 +76,11 @@ class FeatureMapping(nn.Module):
             raise ValueError("fitting requires at least one real sample")
         eps = self.config["eps"]
 
-        for layer in range(self.layers_count):
-            layer_feature = features[:, layer, :]
+        layers = (
+            self.selected_layers.tolist() if selected_only else range(self.layers_count)
+        )
+        for layer in layers:
+            layer_feature = features[:, layer, :].to(self.means)
             real_features = layer_feature[labels == 0]
 
             # mean = real_features.sum(dim=0) / (real_counts + eps)
@@ -112,8 +117,61 @@ class FeatureMapping(nn.Module):
         features = self._prepare_features(features)
         outputs = []
         for layer in self.selected_layers.tolist():
-            layer_features = features[:, layer, :]
+            layer_features = features[:, layer, :].to(self.means)
             standardized = (layer_features - self.means[layer]) / self.scales[layer]
             projection = standardized @ self.basis[layer]
             outputs.append(projection)
         return torch.cat(outputs, dim=1)
+
+
+class GlobalMeanMapping(nn.Module):
+    """Independent FP64 real-reference spectral mappings for two feature views.
+
+    Each view uses its own real mean/scale and leading eigenvectors of Z.T @ Z.
+    There is no second, pooled centering step. Only the prescribed layers are
+    fitted; the backbone still runs all its transformer blocks.
+    """
+
+    BRANCHES = ("global", "mean")
+
+    def __init__(self, config, *, selected_layers):
+        super().__init__()
+        self.branches = nn.ModuleDict(
+            {name: FeatureMapping(config).double() for name in self.BRANCHES}
+        )
+        for mapping in self.branches.values():
+            mapping.select_layers(selected_layers)
+
+    def get_extra_state(self):
+        mapping = self.branches["global"]
+        return {
+            "version": 1,
+            "branches": self.BRANCHES,
+            "layers_count": mapping.layers_count,
+            "input_dim": mapping.input_dim,
+            "output_dim": mapping.output_dim,
+            "eps": mapping.config["eps"],
+        }
+
+    def set_extra_state(self, state):
+        if state != self.get_extra_state():
+            raise ValueError("saved global/mean mapping configuration does not match")
+
+    def _validate_views(self, features):
+        if not isinstance(features, dict) or set(features) != set(self.BRANCHES):
+            raise ValueError("features must contain exactly global and mean views")
+        if len(features["global"]) != len(features["mean"]):
+            raise ValueError("feature views must have the same sample count")
+
+    @torch.no_grad()
+    def fit(self, features, labels):
+        self._validate_views(features)
+        for name, mapping in self.branches.items():
+            mapping.fit(features[name], labels, selected_only=True)
+        return self
+
+    def forward(self, features):
+        self._validate_views(features)
+        return {
+            name: mapping(features[name]) for name, mapping in self.branches.items()
+        }

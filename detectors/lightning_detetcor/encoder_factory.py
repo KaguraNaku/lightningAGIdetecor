@@ -22,10 +22,11 @@ def load_encoder(model_id, *, readout="global", **kwargs):
     """Load one backbone then its adapter, never all model families.
 
     Revision, offline, cache and dtype options pass through to load_backbone.
+    readout="global_mean" returns the two views in one frozen forward pass.
     Use the same checkpoint's image processor separately; pixel preprocessing
     and resize/interpolation are not guessed or overridden by an encoder.
     """
-    if readout not in ("global", "mean", "std", "mean_std"):
+    if readout not in ("global", "mean", "std", "mean_std", "global_mean"):
         raise ValueError("unknown vision readout")
     model = load_backbone(model_id, component="vision", **kwargs)
     family = model.config.model_type
