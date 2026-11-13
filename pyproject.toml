@@ -30,6 +30,9 @@ analysis = ["dlib==20.0.0"]
 [tool.uv]
 default-groups = ["dev", "analysis"]
 
+[tool.uv.config-settings-package]
+dlib = { "--build-option" = ["--no", "DLIB_USE_CUDA"] }
+
 [tool.ruff.lint]
 select = ["F", "B"]
 ignore = ["B904"]
