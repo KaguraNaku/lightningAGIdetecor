@@ -1,0 +1,13 @@
+{
+  "url": "https://github.com/OUC-VAS/ForensicsAdapter",
+  "revision": "a4cc94fa4255d2baa85cb26989fb884b098010e3",
+  "files": {
+    "model/clip/model.py": "79ee3c8ceb6eb32c9b560d2b0b5fcc0deaf98e3990f671b9f954c9948d8d65bb",
+    "model/layer.py": "94c6ad09ad4ef6887ec312430b26c6ac4bb05fedcc46e2070009874cb9362f0b",
+    "model/attn.py": "f570260e93a7f083eab81a7363def18a7703d326cd47d5d48387fd70ec771a70",
+    "model/adapters/adapter.py": "c26d3224827089d534de50d5dc39acfdf0a90325913fd88646343cd09b1c222a",
+    "dataset/abstract_dataset.py": "dd087e7c4ab36663bd1ab0f711f748eda5b6e257d6ec081b16f6f95966a37f9a",
+    "model/ds.py": "bd8ec64b2c1b5e8b3f72e956f7da4f4bf8e5c589cab17ba0b4f52d834cd18079",
+    "config/train.yaml": "613dceb6bc05e8f5baad1ec18a9b5f26174d0f56451faf3e25b160160fc8bd5e"
+  }
+}

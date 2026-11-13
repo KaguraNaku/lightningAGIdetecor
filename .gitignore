@@ -23,3 +23,7 @@ docs/
 *.pt
 *.safetensors
 *.onnx
+
+# Method and configuration usage docs for the requested detector batch.
+!configs/benchmarks/README.md
+!detectors/forada/README.md

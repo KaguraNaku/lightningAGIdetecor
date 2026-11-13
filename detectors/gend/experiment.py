@@ -28,6 +28,7 @@ def default_specification():
 class GenDTask(ImageClassificationTask):
     def __init__(self, settings, *, state=None):
         weights = None
+        fresh_backbone = None
         if state is not None:
             self.validate_state(state)
             construction, preprocessing, origin, weights = (
@@ -59,6 +60,20 @@ class GenDTask(ImageClassificationTask):
                     )
                 weights, receipt = read_gend_weights(settings["initial_checkpoint"])
                 origin.update(receipt)
+            elif settings.get("initialization") == "pretrained_backbone":
+                from transformers import CLIPVisionModelWithProjection
+                backbone_id = settings.get("backbone_id")
+                if not backbone_id:
+                    raise ValueError("Fresh GenD training requires backbone_id")
+                fresh_backbone = CLIPVisionModelWithProjection.from_pretrained(
+                    backbone_id, revision=settings.get("revision"), local_files_only=True,
+                    attn_implementation=construction["attention_implementation"],
+                )
+                actual = fresh_backbone.config.to_dict()
+                for key in ("hidden_size", "intermediate_size", "num_hidden_layers", "num_attention_heads", "image_size", "patch_size", "projection_dim"):
+                    if actual[key] != construction["vision_config"][key]:
+                        raise ValueError("GenD base CLIP geometry differs: " + key)
+                origin.update(initialization="fresh_pretrained_backbone_random_head", backbone_id=str(backbone_id), revision=settings.get("revision"))
             elif settings.get("initialization") == "random":
                 origin["initialization"] = "explicit_constructed_random"
             else:
@@ -123,6 +138,8 @@ class GenDTask(ImageClassificationTask):
                     parameter.data = parameter.detach().clone()
         else:
             model = build()
+            if fresh_backbone is not None:
+                model.model.feature_extractor.load_state_dict(fresh_backbone.state_dict(), strict=True)
         super().__init__(
             model,
             construction=construction,

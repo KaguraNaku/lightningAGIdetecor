@@ -66,7 +66,11 @@ class EffortTrainer:
         train_videos = {r.video_id for r in train.records if r.video_id}
         if train_videos & {r.video_id for r in validation.records if r.video_id}:
             raise ValueError("Effort train/validation video overlap")
-        if any(not r.video_id for r in validation.records):
+        monitor = settings.get("monitor", "video.auc")
+        if monitor not in ("image.auc", "video.auc"):
+            raise ValueError("Effort monitor must be image.auc or video.auc")
+        selection = "source_validation." + monitor + (".mean_probability" if monitor == "video.auc" else "")
+        if monitor == "video.auc" and any(not r.video_id for r in validation.records):
             raise ValueError("Effort video AUC selection requires validation video IDs")
         epochs = positive_integer(settings, "epochs", 10)
         patience = positive_integer(settings, "patience", 2)
@@ -111,7 +115,7 @@ class EffortTrainer:
             "objective": "cross_entropy", "optimizer": "Adam", "betas": [0.9, 0.999],
             "learning_rate": lr, "weight_decay": decay, "eps": 1e-8,
             "batch_size": loader.batch_size, "microbatch_size": microbatch,
-            "selection": "source_validation.video.auc.mean_probability",
+            "selection": selection,
             "exact_training_resume_supported": False,
         })
         best, stale, best_epoch = -math.inf, 0, None
@@ -165,10 +169,11 @@ class EffortTrainer:
                 settings={"threshold": 0.5, "video_aggregation": "mean", "group_by": ["category"]},
                 output_dir=epoch_dir / "validation",
             )
-            video = validation_report["video"]
-            auc = video["auc"] if video is not None else None
+            unit, metric = monitor.split(".")
+            values = validation_report[unit]
+            auc = values[metric] if values is not None else None
             if auc is None or not math.isfinite(auc):
-                raise ValueError("Source validation video AUC is undefined after decoding")
+                raise ValueError(f"Source validation {monitor} is undefined after decoding")
             improved = auc > best + delta
             if improved:
                 best, stale, best_epoch = auc, 0, epoch
@@ -194,7 +199,7 @@ class EffortTrainer:
             if improved:
                 atomic_save(root / "best.pth", checkpoint, torch_format=True)
             del checkpoint
-            logger.info("Effort epoch %d: loss %.6f, validation video AUC %.6f, stale %d", epoch, record["loss"], auc, stale)
+            logger.info("Effort epoch %d: loss %.6f, validation %s %.6f, stale %d", epoch, record["loss"], monitor, auc, stale)
             if stale >= patience:
                 break
         # Return the selected model, not the final optimization iterate.
@@ -202,8 +207,9 @@ class EffortTrainer:
         self.model.load_state_dict(saved["state_dict"], strict=True)
         self.model.eval()
         return {
-            "epochs": len(history), "best_epoch": best_epoch, "best_validation_video_auc": best,
+            "epochs": len(history), "best_epoch": best_epoch, "monitor": monitor, "best_validation_auc": best,
+            **({"best_validation_video_auc": best} if monitor == "video.auc" else {"best_validation_image_auc": best}),
             "stopped_early": len(history) < epochs, "history": "history.json",
-            "selection": "source_validation.video.auc.mean_probability",
+            "selection": selection,
             "train": history[-1]["train"],
         }

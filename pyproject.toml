@@ -25,7 +25,8 @@ temporal = ["einops==0.8.1"]
 include = ["backbones*", "detectors*", "data*", "configs*", "engine*"]
 
 [tool.setuptools.package-data]
-configs = ["*.yaml", "experiments/*.yaml", "migrations/*.json"]
+configs = ["*.yaml", "experiments/*.yaml", "migrations/*.json", "benchmarks/*.json", "benchmarks/*.md", "benchmarks/eight/*.yaml"]
+"detectors.forada" = ["*.json", "LICENSE.*", "README.md"]
 
 [dependency-groups]
 dev = ["ruff>=0.15.17"]
