@@ -58,6 +58,16 @@ class FakeGuardSampler(Sampler):
     def __len__(self):
         return self.size
 
+    def state_dict(self):
+        return {'version': 1, 'seed': self.seed, 'epoch': self.epoch, 'batch_size': self.batch_size}
+
+    def load_state_dict(self, state):
+        if (state.get('version') != 1 or state.get('seed') != self.seed
+                or state.get('batch_size') != self.batch_size
+                or type(state.get('epoch')) is not int or state['epoch'] < 0):
+            raise ValueError('ForAda sampler continuation protocol differs')
+        self.epoch = state['epoch']
+
     def __iter__(self):
         rng = torch.Generator().manual_seed(self.seed + self.epoch)
         self.epoch += 1

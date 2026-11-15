@@ -9,6 +9,7 @@ import torch
 from detectors._shared.trainer import ImageClassificationTrainer
 from engine.evaluate import coverage
 from engine.runtime import atomic_save
+from engine.training_timing import timed_fit, training_region, host_region, validation_meter
 from .dataset import UCFDataset, UCFCollator, UCFDataError, metadata
 
 
@@ -110,32 +111,33 @@ class UCFTrainer(ImageClassificationTrainer):
                         )
                         + "\n"
                     )
-                optimizer.zero_grad(set_to_none=True)
-                images = batch["pixel_values"].to(runtime.device, non_blocking=True)
-                labels = labels.to(runtime.device, non_blocking=True)
-                specific = specific.to(runtime.device, non_blocking=True)
-                with runtime.autocast():
-                    outputs = self.model.forward_outputs(images)
-                    losses = self.model.loss_terms(outputs, images, labels, specific)
-                loss = losses["overall"]
-                if loss.ndim or not torch.isfinite(loss):
-                    atomic_save(
-                        output / "nonfinite-batch.pth",
-                        {"batch": batch, "outputs": outputs, "losses": losses},
-                        torch_format=True,
-                    )
-                    raise ValueError(
-                        "Nonfinite UCF native objective; complete paired batch preserved"
-                    )
-                scaler.scale(loss).backward()
-                scaler.unscale_(optimizer)
-                if any(
-                    p.grad is not None and not torch.isfinite(p.grad).all()
-                    for p in self.model.parameters()
-                ):
-                    raise ValueError("Nonfinite UCF gradient")
-                scaler.step(optimizer)
-                scaler.update()
+                with training_region(self, batch):
+                    optimizer.zero_grad(set_to_none=True)
+                    images = batch["pixel_values"].to(runtime.device, non_blocking=True)
+                    labels = labels.to(runtime.device, non_blocking=True)
+                    specific = specific.to(runtime.device, non_blocking=True)
+                    with runtime.autocast():
+                        outputs = self.model.forward_outputs(images)
+                        losses = self.model.loss_terms(outputs, images, labels, specific)
+                    loss = losses["overall"]
+                    if loss.ndim or not torch.isfinite(loss):
+                        atomic_save(
+                            output / "nonfinite-batch.pth",
+                            {"batch": batch, "outputs": outputs, "losses": losses},
+                            torch_format=True,
+                        )
+                        raise ValueError(
+                            "Nonfinite UCF native objective; complete paired batch preserved"
+                        )
+                    scaler.scale(loss).backward()
+                    scaler.unscale_(optimizer)
+                    if any(
+                        p.grad is not None and not torch.isfinite(p.grad).all()
+                        for p in self.model.parameters()
+                    ):
+                        raise ValueError("Nonfinite UCF gradient")
+                    scaler.step(optimizer)
+                    scaler.update()
                 for key, value in losses.items():
                     components[key] += float(value.detach()) * count
                 image_count += count

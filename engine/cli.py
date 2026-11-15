@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 import logging
 from pathlib import Path
 import platform
+import time
 
 import torch
 import yaml
@@ -42,6 +43,7 @@ def execute(
     env_file=None,
     overrides=None,
 ):
+    started_clock = time.perf_counter()
     config = read_experiment(config_path, require_fit=command != "evaluate")
     for key, value in (overrides or {}).items():
         if value is not None:
@@ -164,6 +166,14 @@ def execute(
     finally:
         status["finished_at"] = datetime.now(timezone.utc).isoformat()
         atomic_save(directory / "run.json", status)
+        timing_path = directory / 'fit/timing.json'
+        if timing_path.exists():
+            import json
+            timing = json.loads(timing_path.read_text())
+            timing['metadata'].update(end_to_end_wall_seconds=time.perf_counter() - started_clock,
+                end_to_end_scope='engine.cli.execute entry to finally;includes model setup,data,fit,source validation,checkpoints;excludes Python process imports',
+                run_id=directory.name)
+            atomic_save(timing_path, timing)
         for handler in handlers:
             root_logger.removeHandler(handler)
             handler.close()

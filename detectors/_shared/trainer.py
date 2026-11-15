@@ -22,6 +22,8 @@ from torch import nn
 from data.manifest import sha256
 from engine.evaluate import coverage, evaluate
 from engine.runtime import atomic_save
+from engine.training_timing import timed_fit, training_region, host_region, validation_meter
+from .continuity import StageContinuation
 
 logger = logging.getLogger(__name__)
 
@@ -195,27 +197,28 @@ class ImageClassificationTrainer:
                         raise ValueError("Invalid or repeated training sample identity")
                     seen.add(source.id)
                     stream.write(json.dumps({**metadata, "label": label}) + "\n")
-                optimizer.zero_grad(set_to_none=True)
-                images = batch["pixel_values"].to(runtime.device, non_blocking=True)
-                labels = batch["labels"].to(runtime.device, non_blocking=True)
-                with self.batch_context(
-                    batch, runtime=runtime, output=output, step=step
-                ):
-                    with runtime.autocast():
-                        loss = self.compute_batch_loss(
-                            batch, images, labels, runtime=runtime
-                        )
-                    if loss.ndim or not torch.isfinite(loss):
-                        raise ValueError("Nonfinite or nonscalar classification loss")
-                    scaler.scale(loss).backward()
-                scaler.unscale_(optimizer)
-                if any(
-                    p.grad is not None and not torch.isfinite(p.grad).all()
-                    for p in self.model.parameters()
-                ):
-                    raise ValueError("Nonfinite classification gradient")
-                scaler.step(optimizer)
-                scaler.update()
+                with training_region(self, batch):
+                    optimizer.zero_grad(set_to_none=True)
+                    images = batch["pixel_values"].to(runtime.device, non_blocking=True)
+                    labels = batch["labels"].to(runtime.device, non_blocking=True)
+                    with self.batch_context(
+                        batch, runtime=runtime, output=output, step=step
+                    ):
+                        with runtime.autocast():
+                            loss = self.compute_batch_loss(
+                                batch, images, labels, runtime=runtime
+                            )
+                        if loss.ndim or not torch.isfinite(loss):
+                            raise ValueError("Nonfinite or nonscalar classification loss")
+                        scaler.scale(loss).backward()
+                    scaler.unscale_(optimizer)
+                    if any(
+                        p.grad is not None and not torch.isfinite(p.grad).all()
+                        for p in self.model.parameters()
+                    ):
+                        raise ValueError("Nonfinite classification gradient")
+                    scaler.step(optimizer)
+                    scaler.update()
                 loss_sum += float(loss.detach()) * count
                 if step % 100 == 0:
                     logger.info(
@@ -231,6 +234,7 @@ class ImageClassificationTrainer:
         receipts.replace(output / "samples.jsonl")
         return loss_sum / len(seen), report
 
+    @timed_fit
     def fit(self, loader, *, validation_loader, runtime, settings, output_dir):
         monitor = settings.get("monitor", "video.auc")
         if monitor not in (f"{self.prediction_unit}.auc", "video.auc"):
@@ -251,6 +255,8 @@ class ImageClassificationTrainer:
         self.objective.to(runtime.device)
         optimizer = self.build_optimizer(settings)
         scaler = torch.amp.GradScaler("cuda", enabled=runtime.precision == "fp16")
+        continuation = StageContinuation(settings, loader, validation_loader, runtime)
+        continuation.restore(self, optimizer, scaler)
         output = Path(output_dir)
         output.mkdir(parents=True, exist_ok=True)
         protocol = {
@@ -294,7 +300,8 @@ class ImageClassificationTrainer:
                 "float32_matmul_precision": torch.get_float32_matmul_precision(),
                 "cudnn_allow_tf32": torch.backends.cudnn.allow_tf32,
                 "matmul_allow_tf32": torch.backends.cuda.matmul.allow_tf32,
-                "exact_training_resume_supported": False,
+                "exact_training_resume_supported": continuation.enabled,
+                "resume_scope": "selected epoch at disjoint stage boundary" if continuation.enabled else None,
             },
         )
         history, stale, best, best_epoch = [], 0, -math.inf, None
@@ -302,25 +309,27 @@ class ImageClassificationTrainer:
             epoch_dir = output / f"epoch-{epoch:03d}"
             training = epoch_dir / "train"
             training.mkdir(parents=True)
-            loss, train_report = self.train_epoch(
-                loader, optimizer, scaler, runtime=runtime, output=training
-            )
+            with host_region(self, "train"):
+                loss, train_report = self.train_epoch(
+                    loader, optimizer, scaler, runtime=runtime, output=training
+                )
             # Validation and serialized snapshots do not use parameter gradients.
             # The next batch also starts with zero_grad; discard these tensors
             # before the large model/optimizer checkpoint write.
             optimizer.zero_grad(set_to_none=True)
             self.model.eval()
-            validation = evaluate(
-                self.make_scorer(),
-                validation_loader,
-                runtime=runtime,
-                settings={
-                    "threshold": 0.5,
-                    "video_aggregation": "mean",
-                    "group_by": ["category"],
-                },
-                output_dir=epoch_dir / "validation",
-            )
+            with host_region(self, "source_validation"):
+                validation = evaluate(
+                    self.make_scorer(),
+                    validation_loader,
+                    runtime=runtime,
+                    settings={
+                        "threshold": 0.5,
+                        "video_aggregation": "mean",
+                        "group_by": ["category"],
+                    },
+                    output_dir=epoch_dir / "validation", timing=validation_meter(self),
+                )
             unit, metric = monitor.split(".")
             value = validation[unit][metric] if validation[unit] is not None else None
             if value is None or not math.isfinite(value):
@@ -338,6 +347,8 @@ class ImageClassificationTrainer:
                 "improved": improved,
                 "stale": stale,
             }
+            if getattr(self, "_timing", None):
+                self._timing.epochs += 1
             history.append(record)
             atomic_save(output / "history.json", history)
             numpy_rng = np.random.get_state()
@@ -360,9 +371,11 @@ class ImageClassificationTrainer:
             method_state = self.method_state_dict()
             if method_state is not None:
                 snapshot["method_state"] = method_state
-            atomic_save(output / "last.pth", snapshot, torch_format=True)
-            if improved:
-                select_checkpoint(output / "last.pth", output / "best.pth")
+            continuation.snapshot(snapshot, epoch, training)
+            with host_region(self, "checkpoint"):
+                atomic_save(output / "last.pth", snapshot, torch_format=True)
+                if improved:
+                    select_checkpoint(output / "last.pth", output / "best.pth")
             del snapshot
             logger.info(
                 "Classification epoch %d loss %.6f %s %.6f", epoch, loss, monitor, value
@@ -370,13 +383,14 @@ class ImageClassificationTrainer:
             if patience is not None and stale >= patience:
                 break
         del optimizer, scaler
-        selected = torch.load(
-            output / "best.pth", weights_only=True, mmap=True, map_location="cpu"
-        )
-        self.load_selected_weights(selected["state_dict"])
-        self.objective.load_state_dict(selected["objective"], strict=True)
-        self.load_method_state_dict(selected.get("method_state"))
-        self.model.eval()
+        with host_region(self, "checkpoint_restore"):
+            selected = torch.load(
+                output / "best.pth", weights_only=True, mmap=True, map_location="cpu"
+            )
+            self.load_selected_weights(selected["state_dict"])
+            self.objective.load_state_dict(selected["objective"], strict=True)
+            self.load_method_state_dict(selected.get("method_state"))
+            self.model.eval()
         return {
             "epochs": len(history),
             "best_epoch": best_epoch,
@@ -385,4 +399,5 @@ class ImageClassificationTrainer:
             "stopped_early": len(history) < epochs,
             "history": "history.json",
             "train": history[-1]["train"],
+            **({"continuation": continuation.summary(selected)} if continuation.enabled else {}),
         }

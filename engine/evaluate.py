@@ -3,6 +3,7 @@
 import json
 import logging
 import os
+from contextlib import nullcontext
 from pathlib import Path
 
 import torch
@@ -33,7 +34,7 @@ def coverage(dataset, successful_ids, output_dir):
 
 
 @torch.inference_mode()
-def evaluate(task, loader, *, runtime, settings, output_dir):
+def evaluate(task, loader, *, runtime, settings, output_dir, timing=None):
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     accumulator = MetricAccumulator(
@@ -48,11 +49,14 @@ def evaluate(task, loader, *, runtime, settings, output_dir):
     with temporary.open("w") as stream:
         for batch in loader:
             predict_batch = getattr(task, "predict_batch", None)
-            scores = (
-                predict_batch(batch, runtime=runtime)
-                if callable(predict_batch)
-                else task.predict(batch["pixel_values"], runtime=runtime)
-            )
+            region = timing.region('source_validation_step', samples=len(batch['metadata']),
+                scope='H2D+predict;score-copy excluded') if timing is not None else nullcontext()
+            with region:
+                scores = (
+                    predict_batch(batch, runtime=runtime)
+                    if callable(predict_batch)
+                    else task.predict(batch["pixel_values"], runtime=runtime)
+                )
             count = len(batch["metadata"])
             labels = batch["labels"].detach().cpu()
             if not isinstance(scores, torch.Tensor) or scores.shape != (count,):
