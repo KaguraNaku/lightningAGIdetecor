@@ -1,1 +1,1 @@
-"""Independent SLADD preparation; not yet a unified Task or complete synthesizer."""
+"""Independent SLADD Task and native method components; full fit gates pending."""

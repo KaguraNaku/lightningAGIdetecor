@@ -55,6 +55,8 @@ class SLADDOptimization:
             raise ValueError("SLADD begin_batch must precede forward and update")
         self._begun = False
         losses = detector_losses(outputs)
+        if not torch.isfinite(losses["overall"]):
+            raise ValueError("Nonfinite SLADD detector loss; no optimizer update")
         if "map" in outputs and outputs["log_prob"] is not None:
             self.synthesizer_optimizer.zero_grad()
             policy, entropy = synthesizer_loss(
@@ -62,12 +64,25 @@ class SLADDOptimization:
                 log_prob=outputs["log_prob"],
                 entropy=outputs["entropy"],
             )
+            if not torch.isfinite(policy):
+                raise ValueError("Nonfinite SLADD policy loss; no policy update")
             if policy.requires_grad:
                 policy.backward()
+                self._finite_gradients(self.synthesizer_optimizer)
                 self.synthesizer_optimizer.step()
         else:
             policy, entropy = 0, 0
         # Keep the independent detector graph intact until after policy.step.
         losses["overall"].backward()
+        self._finite_gradients(self.detector_optimizer)
         self.detector_optimizer.step()
         return {**losses, "synthesizer_loss": policy, "entropy_penalty": entropy}
+
+    @staticmethod
+    def _finite_gradients(optimizer):
+        if any(
+            p.grad is not None and not torch.isfinite(p.grad).all()
+            for group in optimizer.param_groups
+            for p in group["params"]
+        ):
+            raise ValueError("Nonfinite SLADD gradient; optimizer phase stopped")
