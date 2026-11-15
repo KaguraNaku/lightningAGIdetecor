@@ -119,4 +119,3 @@ class SelfBlendingGenerator:
             image=generated.astype("uint8"), image1=original.astype("uint8")
         )
         return result["image"], result["image1"], mask
-
