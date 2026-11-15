@@ -2,7 +2,7 @@
 import torch
 from torch import nn
 from torch.nn import functional as F
-from transformers import CLIPImageProcessor, CLIPVisionModel
+from transformers import CLIPImageProcessorPil, CLIPVisionModel
 from .analytic import LAYERS
 
 
@@ -44,7 +44,7 @@ class Fixed8DualDetector(nn.Module):
 
 class Fixed8LightningTask:
     def __init__(self, processor, vision, coefficients):
-        self.processor = CLIPImageProcessor.from_dict(processor)
+        self.processor = CLIPImageProcessorPil.from_dict(processor)
         self.detector = Fixed8DualDetector(DualReadoutBackbone(vision), coefficients)
 
     @classmethod
