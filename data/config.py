@@ -3,13 +3,13 @@
 import os
 from importlib.resources import files
 from pathlib import Path
-import re
 
 from dotenv import dotenv_values
 import yaml
 
+from engine.resources import ResourceResolver
+
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-VARIABLE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
 
 
 class DataConfig:
@@ -29,6 +29,8 @@ class DataConfig:
             **dotenv_values(self.env_file, interpolate=False),
             **os.environ,
         }
+        self.resources = ResourceResolver(self.path.parent, variables=self.variables)
+        self.variables = self.resources.variables
         with self.path.open() as stream:
             self.settings = yaml.safe_load(stream)
         if not isinstance(self.settings, dict) or not isinstance(
@@ -37,23 +39,7 @@ class DataConfig:
             raise ValueError(f"{self.path}: datasets must be a mapping")
 
     def expand(self, value: str, stack: tuple[str, ...] = ()) -> str:
-        def replace(match):
-            name = match[1]
-            if name in stack:
-                raise ValueError(f"Cyclic environment reference: {name}")
-            resolved = self.variables.get(name)
-            if not resolved:
-                raise ValueError(
-                    f"Missing environment variable {name}; set it in {self.env_file}"
-                )
-            return self.expand(resolved, (*stack, name))
-
-        expanded = VARIABLE.sub(replace, value)
-        if "$" in expanded:
-            raise ValueError(
-                f"Unsupported environment expression: {value}; use ${{NAME}}"
-            )
-        return expanded
+        return self.resources.expand(value, stack)
 
     def dataset(self, name: str) -> dict:
         if name not in self.settings["datasets"]:

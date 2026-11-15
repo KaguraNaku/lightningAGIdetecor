@@ -8,28 +8,7 @@ from pathlib import Path
 import platform
 import time
 
-import torch
-import yaml
-
-from data.config import DataConfig
-from data.loader import create_input_loader
-from data.manifest import sha256
-
-from .config import input_settings, read_experiment
-from .evaluate import evaluate
-from .fit import fit, restore
-from .summary import summary_rows
-from .runtime import (
-    Runtime,
-    release_cpu_memory,
-    atomic_save,
-    configure_logging,
-    collator_for,
-    dataset_adapter_for,
-    sampler_factory_for,
-    create_run_dir,
-    create_task,
-)
+from .models import ModelRegistry
 
 logger = logging.getLogger(__name__)
 
@@ -42,9 +21,46 @@ def execute(
     datasets=None,
     env_file=None,
     overrides=None,
+    model_name=None,
+    training_input=None,
+    evaluation_inputs=None,
 ):
+    import torch
+    import yaml
+
+    from data.config import DataConfig
+    from data.loader import create_input_loader
+    from data.manifest import sha256
+
+    from .config import input_settings, read_experiment
+    from .evaluate import evaluate
+    from .fit import CheckpointReference, fit, restore
+    from .summary import summary_rows
+    from .runtime import (
+        Runtime,
+        release_cpu_memory,
+        atomic_save,
+        configure_logging,
+        collator_for,
+        dataset_adapter_for,
+        sampler_factory_for,
+        create_run_dir,
+        create_task,
+    )
     started_clock = time.perf_counter()
-    config = read_experiment(config_path, require_fit=command != "evaluate")
+    config = read_experiment(config_path, require_fit=command != "evaluate", env_file=env_file)
+    if model_name is not None:
+        config["model"] = ModelRegistry.select(model_name, config.get("model", {}))
+    if training_input is not None:
+        if training_input not in config["inputs"] or config["inputs"][training_input]["split"] != "train":
+            raise ValueError("--train-input must name a configured source train input")
+        config["fit"]["input"] = training_input
+    if evaluation_inputs is not None:
+        if (not evaluation_inputs or len(set(evaluation_inputs)) != len(evaluation_inputs)
+                or any(name not in config["inputs"] or config["inputs"][name]["split"] == "train"
+                       for name in evaluation_inputs)):
+            raise ValueError("--test-inputs must name unique configured validation/test inputs")
+        config["evaluation"]["inputs"] = list(evaluation_inputs)
     for key, value in (overrides or {}).items():
         if value is not None:
             config["runtime"][key] = str(value)
@@ -81,11 +97,10 @@ def execute(
             task, saved = restore(checkpoint)
             # Model construction and score policy belong to the saved model, not test data.
             config["model"] = saved["model"]
+            if model_name is not None:
+                ModelRegistry.select(model_name, config["model"])
             config["evaluation"]["threshold"] = saved["score"]["threshold"]
-            status["checkpoint"] = {
-                "path": str(Path(checkpoint).resolve()),
-                "sha256": sha256(Path(checkpoint)),
-            }
+            status["checkpoint"] = CheckpointReference(checkpoint).state_dict()
         else:
             task = create_task(config["model"])
         (directory / "resolved-config.yaml").write_text(
@@ -185,11 +200,15 @@ def main(argv=None):
         description="Run model-independent image detection experiments"
     )
     commands = parser.add_subparsers(dest="command", required=True)
+    commands.add_parser("models", help="List the nine models without loading any backend")
     for name in ("fit", "evaluate", "run"):
         command = commands.add_parser(name)
         command.add_argument(
-            "--config", type=Path, required=True, help="Experiment YAML"
+            "--config", type=Path, help="Experiment YAML; defaults to the selected model's maintained preset"
         )
+        command.add_argument("--model", choices=tuple(spec.name for spec in ModelRegistry.SPECS))
+        command.add_argument("--train-input", help="Configured source train input")
+        command.add_argument("--test-inputs", nargs="+", help="Configured val/test input names")
         command.add_argument("--datasets", type=Path, help="Dataset registry YAML")
         command.add_argument("--env-file", type=Path)
         command.add_argument("--output-dir", type=Path)
@@ -201,13 +220,31 @@ def main(argv=None):
         if name == "evaluate":
             command.add_argument("--checkpoint", type=Path, required=True)
     args = parser.parse_args(argv)
+    if args.command == "models":
+        import json
+        print(json.dumps({"models":ModelRegistry.describe()},indent=2))
+        return
+    if args.config is None:
+        if args.model is None:
+            parser.error('Specify --model or --config')
+        args.config = ModelRegistry.default_config(args.model)
     try:
+        # The public CLI exposes only the nine supported factories. The low-level
+        # execute() API retains injectable tasks for isolated engine tests.
+        import yaml
+        declaration = yaml.safe_load(args.config.read_text())
+        if not isinstance(declaration, dict) or not isinstance(declaration.get('model'), dict):
+            raise ValueError('A supported model declaration is required')
+        ModelRegistry.validate_factory(declaration['model'])
         directory = execute(
             args.command,
             args.config,
             checkpoint=getattr(args, "checkpoint", None),
             datasets=args.datasets,
             env_file=args.env_file,
+            model_name=args.model,
+            training_input=args.train_input,
+            evaluation_inputs=args.test_inputs,
             overrides={
                 key: getattr(args, key)
                 for key in ("output_dir", "device", "precision", "log_level")

@@ -12,7 +12,7 @@ import torch
 
 from data.manifest import sha256
 from detectors._shared.transforms import ImageTransform
-from detectors.fwa.generation import rng_state
+from detectors._shared.randomness import RandomState
 
 
 DEFAULT_LABEL_MAP = {"FF-real": 0, "FF-DF": 1, "FF-F2F": 2, "FF-FS": 3, "FF-NT": 4}
@@ -148,7 +148,7 @@ class UCFDataset:
         }
 
     def __getitem__(self, index):
-        fake, before, real = self.records[index], rng_state(), None
+        fake, before, real = self.records[index], RandomState.capture(), None
         try:
             # This draw precedes decoder IO and augmentation in the native body.
             real = self.real_records[random.randint(0, len(self.real_records) - 1)]
@@ -173,7 +173,7 @@ class UCFDataset:
                     "fake_id": fake.id,
                     "real_id": real.id,
                     "rng_before": before,
-                    "rng_after": rng_state(),
+                    "rng_after": RandomState.capture(),
                 },
             }
         except Exception as error:
@@ -183,7 +183,7 @@ class UCFDataset:
                     "sampled_real": metadata(real) if real is not None else None,
                     "error": f"{type(error).__name__}: {error}",
                     "rng_before": before,
-                    "rng_after": rng_state(),
+                    "rng_after": RandomState.capture(),
                 }
             ) from error
 

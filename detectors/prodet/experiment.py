@@ -11,7 +11,7 @@ from data.loader import ImageCollator
 from detectors._shared.provenance import reference_for
 from detectors._shared.task import ImageClassificationTask
 from detectors._shared.transforms import ImageTransform, preprocessing_config
-from detectors.efficientnetb4.checkpoint import initialize_backbone
+from detectors._shared.initialization import EfficientNetB4Initializer
 from .checkpoint import (
     detector_weights,
     require_recipe,
@@ -175,7 +175,7 @@ class ProDetTask(ImageClassificationTask):
                 dropout=0.0,
             )
             if settings.get("init_weights") is not None:
-                origin["pretrained_backbone"] = initialize_backbone(
+                origin["pretrained_backbone"] = EfficientNetB4Initializer.initialize(
                     backbone, settings["init_weights"]
                 )
             else:

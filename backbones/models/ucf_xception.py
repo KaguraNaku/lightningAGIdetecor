@@ -2,7 +2,7 @@
 
 from torch import nn
 
-from .iid_xception import Block, SeparableConv2d
+from ._xception_blocks import Block, SeparableConv2d
 
 
 class UCFXception(nn.Module):

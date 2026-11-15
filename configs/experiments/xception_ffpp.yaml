@@ -1,49 +1,77 @@
-# Native network/batch settings with the remake source-validation selection
-# policy. Fill in the local ImageNet initialization path before using this file.
-# Whole batches are retained: silently microbatching changes BatchNorm behavior.
+# Cloud-verified source fit settings; choose test inputs explicitly through the common CLI.
 version: 1
 seed: 1024
 runtime:
-  device: cpu
+  device: cuda:0
   precision: fp32
   allow_tf32: false
   log_level: INFO
-  output_dir: outputs/xception_ffpp
+  output_dir: ../../outputs/ffpp/xception
 model:
   factory: detectors.xception.experiment:create_task
   mode: original
-  init_weights: /absolute/path/to/xception-b5690688.pth
-  # To train from scratch, remove init_weights and set initialization: random.
+  init_weights: ${WEIGHT_ROOT}/xception-b5690688.pth
+  augmentation: true
+  data_aug:
+    flip_prob: 0.5
+    rotate_prob: 0.0
+    rotate_limit:
+    - -10
+    - 10
+    blur_prob: 0.5
+    blur_limit:
+    - 3
+    - 7
+    brightness_prob: 0.5
+    brightness_limit:
+    - -0.1
+    - 0.1
+    contrast_limit:
+    - -0.1
+    - 0.1
+    quality_lower: 40
+    quality_upper: 100
 loader:
   batch_size: 32
-  num_workers: 0
+  num_workers: 4
   persistent_workers: false
   shuffle: false
+  pin_memory: true
+  prefetch_factor: 2
+  decode_error_patience: 1
 inputs:
   training:
     dataset: FaceForensics++
     split: train
-    manifest: ${MANIFEST_ROOT}/FaceForensics++-train-frames-32.jsonl
+    manifest: ${MANIFEST_ROOT}/FaceForensics++-train-frames-8.jsonl
     shuffle: true
   validation:
     dataset: FaceForensics++
     split: val
     manifest: ${MANIFEST_ROOT}/FaceForensics++-val-frames-32.jsonl
-  celeb_df_v2_test:
-    dataset: Celeb-DF-v2
+    batch_size: 32
+  ffpp_test:
+    dataset: FaceForensics++
     split: test
-    manifest: ${MANIFEST_ROOT}/Celeb-DF-v2-test-frames-32.jsonl
+    manifest: ${MANIFEST_ROOT}/FaceForensics++-test-frames-32.jsonl
+  ufd_test:
+    dataset: UniversalFakeDetect
+    split: test
+    manifest: ${MANIFEST_ROOT}/UniversalFakeDetect-test.jsonl
 fit:
   input: training
   validation_input: validation
-  epochs: 10
-  patience: null
+  epochs: 11
+  patience: 3
   monitor: video.auc
   optimizer: adam
   learning_rate: 0.0002
   weight_decay: 0.0005
+  min_delta: 0.0001
 evaluation:
-  inputs: [validation, celeb_df_v2_test]
+  inputs:
+  - validation
   threshold: 0.5
   video_aggregation: mean
-  group_by: [category]
+  group_by:
+  - category

@@ -6,15 +6,17 @@ build-backend = "setuptools.build_meta"
 name = "lightning-remake"
 version = "0.1.0"
 description = "Nine lazily loaded image forensic detectors and their experiment engine"
+readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
-  "torch>=2.9.1", "transformers>=4.57.3", "numpy>=1.24", "scikit-learn>=1.3",
+  "torch>=2.9.1", "transformers==5.20.2", "numpy>=1.24", "scikit-learn>=1.3",
   "pyyaml>=6", "Pillow>=10", "albumentations==1.3.1", "pyarrow>=14",
   "opencv-python-headless==4.11.0.86", "python-dotenv>=1.0",
-  "huggingface-hub>=0.34", "safetensors>=0.4.3",
+  "huggingface-hub>=0.34", "safetensors>=0.4.3", "scipy>=1.11",
 ]
 
 [project.scripts]
+experiment = "engine.cli:main"
 prepare-data = "data.cli:prepare_main"
 check-data = "data.cli:check_main"
 
@@ -22,7 +24,7 @@ check-data = "data.cli:check_main"
 include = ["backbones*", "detectors*", "data*", "configs*", "engine*"]
 
 [tool.setuptools.package-data]
-configs = ["*.yaml", "experiments/*.yaml", "migrations/*.json", "benchmarks/*.json", "benchmarks/*.md", "benchmarks/eight/*.yaml"]
+configs = ["*.yaml", "experiments/*.yaml", "migrations/*.json"]
 "detectors.forada" = ["*.json", "LICENSE.*", "README.md"]
 
 [tool.ruff.lint]

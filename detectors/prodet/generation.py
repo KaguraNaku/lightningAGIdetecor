@@ -9,9 +9,9 @@ import random
 import numpy as np
 import torch
 
-from detectors.fwa.generation import augmentation_library
-from detectors.sbi.generation import SBIGenerator, blend_mask
-from detectors.sbi.masks import hull_mask
+from detectors._shared.augmentation import AugmentationLibrary
+from .blending import SelfBlendingGenerator, SoftBlendMask
+from .masks import FaceHullMask
 
 
 DOMAINS = (("real", 0), ("blendfake", 1), ("bifake", 3), ("deepfake", 2))
@@ -44,8 +44,8 @@ class ProDetGenerator:
     """The selected prodet.yaml recipe: whole_face, BI on, soft_bi=True."""
 
     def __init__(self):
-        self.sbi = SBIGenerator()
-        A = augmentation_library()
+        self.sbi = SelfBlendingGenerator()
+        A = AugmentationLibrary.load()
         self.transforms = A.Compose(
             [
                 A.RGBShift((-20, 20), (-20, 20), (-20, 20), p=0.3),
@@ -91,10 +91,10 @@ class ProDetGenerator:
         if np.random.rand() < 0.25:
             landmarks = landmarks[:68]
         # random_get_hull(None) selects all four hulls for whole_face.
-        mask = hull_mask(landmarks, background, random.choice([0, 1, 2, 3]))
+        mask = FaceHullMask.create(landmarks, background, random.choice([0, 1, 2, 3]))
         source, mask = self.sbi.randaffine(foreground.copy(), mask)
         source = self.color_transfer(background.copy(), source, mask)
-        blurred = blend_mask(mask)
+        blurred = SoftBlendMask.create(mask)
         ratio = [0.25, 0.5, 0.75, 1, 1, 1][np.random.randint(6)]
         blurred *= ratio
         generated = blurred * source + (1 - blurred) * background

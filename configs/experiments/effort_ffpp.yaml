@@ -1,5 +1,4 @@
-# Manifest sampling belongs to remake. This does not reproduce the author's
-# first-eight-JSON-frame sampler or historical frozen sample membership.
+# Cloud-verified source fit settings; choose test inputs explicitly through the common CLI.
 version: 1
 seed: 1024
 runtime:
@@ -7,21 +6,22 @@ runtime:
   precision: fp32
   allow_tf32: false
   log_level: INFO
-  output_dir: outputs/effort_ffpp
+  output_dir: ../../outputs/ffpp/effort
 model:
   factory: detectors.effort.experiment:create_task
   backbone_id: openai/clip-vit-large-patch14
   revision: 32bd64288804d66eefd0ccbe215aa642df71cc41
   attention_implementation: sdpa
   retained_rank: 1023
-  # initial_checkpoint: /absolute/path/to/author/best.pth
+  local_files_only: true
 loader:
   batch_size: 32
-  num_workers: 2
+  num_workers: 4
   pin_memory: true
   persistent_workers: false
-  decode_error_patience: 10
+  decode_error_patience: 1
   shuffle: false
+  prefetch_factor: 2
 inputs:
   training:
     dataset: FaceForensics++
@@ -32,23 +32,29 @@ inputs:
     dataset: FaceForensics++
     manifest: ${MANIFEST_ROOT}/FaceForensics++-val-frames-32.jsonl
     split: val
-    batch_size: 8
-  celeb_df_v2_test:
-    dataset: Celeb-DF-v2
-    manifest: ${MANIFEST_ROOT}/Celeb-DF-v2-test-frames-32.jsonl
+    batch_size: 32
+  ffpp_test:
+    dataset: FaceForensics++
     split: test
-    batch_size: 8
+    manifest: ${MANIFEST_ROOT}/FaceForensics++-test-frames-32.jsonl
+  ufd_test:
+    dataset: UniversalFakeDetect
+    split: test
+    manifest: ${MANIFEST_ROOT}/UniversalFakeDetect-test.jsonl
 fit:
   input: training
   validation_input: validation
-  epochs: 10
-  patience: 2
+  epochs: 11
+  patience: 3
   min_delta: 0.0001
   microbatch_size: 8
   learning_rate: 0.0002
   weight_decay: 0.0005
+  monitor: video.auc
 evaluation:
-  inputs: [validation, celeb_df_v2_test]
+  inputs:
+  - validation
   threshold: 0.5
   video_aggregation: mean
-  group_by: [category]
+  group_by:
+  - category

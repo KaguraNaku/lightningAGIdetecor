@@ -17,16 +17,28 @@ class FitTiming:
         self.wall_seconds = {}
         self.output, self.meter = Path(output), None
         self.ids, self.exposures, self.steps, self.epochs = set(), 0, 0, 0
-        if not spec:
+        if spec is False:
             return
+        if spec is None or spec is True:
+            spec = {}
+        if not isinstance(spec, dict):
+            raise TypeError("gpu_timing must be a mapping or boolean")
         import torch
-        path = Path(spec['module'])
-        with path.open('rb') as stream:
-            if hashlib.file_digest(stream, 'sha256').hexdigest() != spec['sha256']:
-                raise ValueError('Shared timing module checksum changed')
-        definition = importlib.util.spec_from_file_location('authorized_gpu_timing', path)
-        module = importlib.util.module_from_spec(definition)
-        definition.loader.exec_module(module)
+        if 'module' in spec:
+            path = Path(spec['module'])
+            expected = spec.get('sha256')
+            if not expected:
+                raise ValueError('Historical timing module requires sha256')
+            with path.open('rb') as stream:
+                if hashlib.file_digest(stream, 'sha256').hexdigest() != expected:
+                    raise ValueError('Shared timing module checksum changed')
+            definition = importlib.util.spec_from_file_location('authorized_gpu_timing', path)
+            module = importlib.util.module_from_spec(definition)
+            definition.loader.exec_module(module)
+            recorder = module.GPUTimeRecorder
+        else:
+            from .gpu_timing import GPUTimeRecorder
+            recorder = GPUTimeRecorder
         metadata = {**spec.get('metadata', {}), 'Python_version': platform.python_version(),
             'torch_version': str(torch.__version__), 'CUDA_version': torch.version.cuda,
             'CPU_threads': torch.get_num_threads(), 'precision': runtime.precision,
@@ -37,15 +49,20 @@ class FitTiming:
             'source_validation_scope': 'H2D+predict;score-copy and prediction serialization excluded',
             'extra_warmup_batches': 0}
         metadata.update(origin_host=socket.gethostname(), allow_tf32=torch.backends.cuda.matmul.allow_tf32,
-            manifest_sha256=self._sha(loader.dataset.manifest_path),
-            validation_manifest_sha256=self._sha(validation_loader.dataset.manifest_path) if validation_loader else None)
+            manifest_sha256=self._manifest_sha(loader),
+            validation_manifest_sha256=self._manifest_sha(validation_loader))
         if runtime.device.type == 'cuda':
             torch.cuda.reset_peak_memory_stats(runtime.device)
             gpu = subprocess.check_output(['nvidia-smi', '--query-gpu=uuid,name', '--format=csv,noheader'], text=True).strip()
             metadata['GPU_uuid_and_name'] = gpu
             metadata['gpu_uuid'], metadata['gpu_name'] = [x.strip() for x in gpu.split(',', 1)]
             metadata['peak_reset_scope'] = 'This fit entry;includes model-to-device and restored optimizer allocation'
-        self.meter = module.GPUTimeRecorder(device=str(runtime.device), warmup_batches=3, metadata=metadata)
+        self.meter = recorder(device=str(runtime.device), warmup_batches=3, metadata=metadata)
+
+    @classmethod
+    def _manifest_sha(cls, loader):
+        path = getattr(getattr(loader, 'dataset', None), 'manifest_path', None)
+        return cls._sha(path) if path is not None else None
 
     @staticmethod
     def _sha(path):

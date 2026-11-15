@@ -7,8 +7,10 @@ import re
 
 import yaml
 
+from .resources import ResourceResolver
 
-def read_experiment(path, *, require_fit=True):
+
+def read_experiment(path, *, require_fit=True, variables=None, env_file=None):
     with Path(path).open() as stream:
         config = yaml.safe_load(stream)
     if not isinstance(config, dict) or config.get("version") != 1:
@@ -128,6 +130,20 @@ def read_experiment(path, *, require_fit=True):
         raise ValueError("runtime.allow_tf32 must be a boolean")
     if runtime["log_level"] not in ("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"):
         raise ValueError("Invalid log_level")
+    resources = ResourceResolver(Path(path).resolve().parent, variables=variables, env_file=env_file)
+    for item in inputs.values():
+        # Registry variables (including its MANIFEST_ROOT default) are expanded
+        # when the selected dataset is opened; simple relative paths can be
+        # anchored now without eagerly opening unused datasets.
+        if "$" not in item["manifest"]:
+            item["manifest"] = str(resources.path(item["manifest"], must_exist=False))
+    if require_fit:
+        config["model"] = resources.model_settings(config["model"])
+        timing = config["fit"].get("gpu_timing")
+        if isinstance(timing, dict) and "module" in timing:
+            timing["module"] = str(resources.path(timing["module"]))
+    # Outputs may not exist yet; inputs remain the dataset registry's concern.
+    runtime["output_dir"] = str(resources.path(runtime["output_dir"], must_exist=False, kind="directory"))
     return config
 
 

@@ -8,7 +8,7 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-from detectors.fwa.generation import pixel_digest, rng_state
+from detectors._shared.randomness import ArrayIdentity, RandomState
 from .generation import DOMAINS, ProDetGenerator, ProDetQuadCollator, select_foreground
 from .protocol import ProDetSourcePlan, verify_file
 
@@ -41,7 +41,7 @@ def array_identity(value):
     return {
         "shape": list(value.shape),
         "dtype": str(value.dtype),
-        "sha256": pixel_digest(value),
+        "sha256": ArrayIdentity.digest(value),
     }
 
 
@@ -149,7 +149,7 @@ class ProDetDataset:
         # Normalize Python's negative indexing for the static view inventory.
         if index < 0:
             index += len(self)
-        before, selected, operation = rng_state(), None, "control_file_verification"
+        before, selected, operation = RandomState.capture(), None, "control_file_verification"
         try:
             self._check_controls()
             real_id, fake_id = pair["real_id"], pair["fake_id"]
@@ -208,7 +208,7 @@ class ProDetDataset:
                     name: array_identity(result[name][0].numpy()) for name, _ in DOMAINS
                 },
                 "rng_before": before,
-                "rng_after": rng_state(),
+                "rng_after": RandomState.capture(),
                 "substitution_performed": False,
                 "source_short_list_clamping": pair["real_clamped"]
                 or pair["fake_clamped"],
@@ -228,7 +228,7 @@ class ProDetDataset:
                     "real_binding": self.plan.bindings[pair["real_id"]],
                     "fake_binding": self.plan.bindings[pair["fake_id"]],
                     "rng_before": before,
-                    "rng_after": rng_state(),
+                    "rng_after": RandomState.capture(),
                     "error": f"{type(error).__name__}: {error}",
                 }
             ) from error

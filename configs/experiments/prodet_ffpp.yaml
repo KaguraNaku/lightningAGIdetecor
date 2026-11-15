@@ -1,46 +1,45 @@
-# Explicit intended SBIPlusV2 wiring repair;actual train.py selects generic data.
-# Use model.data_profile=native_entrypoint andremove training_neighbors to select
-# the formal generic binary24-image path. Specialized24 quadruples give96 images.
-# Native default21 inclusive epochs. CPU activation transport retains every file;
-# fitting preflight requires capacity for the complete declared run plus8GiB
-# reserve and4GiB checkpoint headroom. No full B96 fit/corpus reproduction claimed.
+# Cloud-verified source fit settings; choose test inputs explicitly through the common CLI.
 version: 1
 seed: 1024
 runtime:
-  device: cpu
+  device: cuda:0
   precision: fp32
   allow_tf32: false
   log_level: INFO
-  output_dir: /absolute/path/to/prodet-runs
+  output_dir: ../../outputs/ffpp/prodet
 model:
   factory: detectors.prodet.experiment:create_task
-  init_weights: /absolute/path/to/efficientnet-b4-6ed6700e.pth
-  data_profile: specialized_quadruples
+  init_weights: ${WEIGHT_ROOT}/efficientnet-b4-6ed6700e.pth
+  data_profile: native_entrypoint
   score_type: probability
-  training_neighbors:
-    path: /absolute/path/to/compiled-raw-neighbors.json
-    sha256: replace_with_actual_sha256
-    bytes: 1
 loader:
   batch_size: 32
-  num_workers: 0
+  num_workers: 4
   persistent_workers: false
   shuffle: false
+  pin_memory: true
+  prefetch_factor: 2
+  decode_error_patience: 1
 inputs:
   training:
     dataset: FaceForensics++
     split: train
-    manifest: ${MANIFEST_ROOT}/FaceForensics++-train-prodet-bindings.jsonl
+    manifest: ${MANIFEST_ROOT}/FaceForensics++-train-frames-8.jsonl
     batch_size: 24
     shuffle: true
   validation:
     dataset: FaceForensics++
     split: val
     manifest: ${MANIFEST_ROOT}/FaceForensics++-val-frames-32.jsonl
-  celeb_df_v2_test:
-    dataset: Celeb-DF-v2
+    batch_size: 32
+  ffpp_test:
+    dataset: FaceForensics++
     split: test
-    manifest: ${MANIFEST_ROOT}/Celeb-DF-v2-test-frames-32.jsonl
+    manifest: ${MANIFEST_ROOT}/FaceForensics++-test-frames-32.jsonl
+  ufd_test:
+    dataset: UniversalFakeDetect
+    split: test
+    manifest: ${MANIFEST_ROOT}/UniversalFakeDetect-test.jsonl
 fit:
   input: training
   validation_input: validation
@@ -49,10 +48,13 @@ fit:
   optimizer: adam
   learning_rate: 0.0002
   weight_decay: 0.0005
-  disk_saved_tensors: true
+  disk_saved_tensors: false
   disk_reserve_gib: 8
+  patience: 3
+  min_delta: 0.0001
 evaluation:
-  inputs: [validation, celeb_df_v2_test]
+  inputs:
+  - validation
   threshold: 0.5
   video_aggregation: mean
   group_by: []
