@@ -270,7 +270,9 @@ class RidgeClassifier(nn.Module):
             raise ValueError("remaining Gram matrix is not positive semidefinite")
 
     @torch.no_grad()
-    def _update(self, features, labels, *, mapping_id, direction=1, replace=False):
+    def _prepare_update(
+        self, features, labels, *, mapping_id, direction=1, replace=False
+    ):
         self._check_mapping(mapping_id, replace=replace)
         features, labels = self._prepare_batch(features, labels)
         old_count = 0 if replace else int(self.sample_count)
@@ -292,18 +294,45 @@ class RidgeClassifier(nn.Module):
                 gram, feature_label_sum, feature_sum, label_sum, sample_count
             )
         if sample_count == 0:
-            return self.reset()
+            return None
         weights = self._solve(
             gram, feature_label_sum, feature_sum, label_sum, sample_count
         )
-        self.gram.copy_(gram)
-        self.feature_label_sum.copy_(feature_label_sum)
-        self.feature_sum.copy_(feature_sum)
-        self.label_sum.copy_(label_sum)
-        self.sample_count.fill_(sample_count)
-        self.weights.copy_(weights)
-        self.mapping_id = mapping_id
+        return dict(
+            gram=gram,
+            feature_label_sum=feature_label_sum,
+            feature_sum=feature_sum,
+            label_sum=label_sum,
+            sample_count=sample_count,
+            weights=weights,
+            mapping_id=mapping_id,
+        )
+
+    @torch.no_grad()
+    def _commit_update(self, candidate):
+        if candidate is None:
+            return self.reset()
+        for name in (
+            "gram",
+            "feature_label_sum",
+            "feature_sum",
+            "label_sum",
+            "weights",
+        ):
+            getattr(self, name).copy_(candidate[name])
+        self.sample_count.fill_(candidate["sample_count"])
+        self.mapping_id = candidate["mapping_id"]
         return self
+
+    def _update(self, features, labels, *, mapping_id, direction=1, replace=False):
+        candidate = self._prepare_update(
+            features,
+            labels,
+            mapping_id=mapping_id,
+            direction=direction,
+            replace=replace,
+        )
+        return self._commit_update(candidate)
 
     def fit(self, features, labels, *, mapping_id):
         """Replace the stored statistics and fit a new classifier."""
@@ -324,3 +353,63 @@ class RidgeClassifier(nn.Module):
             self._check_mapping(mapping_id)
         _validate_features(features, self.dimension)
         return features.to(self.weights) @ self.weights
+
+
+class EqualWeightRidgeClassifier(nn.Module):
+    """Two independent Ridge heads with raw, equal-weight score addition.
+
+    No LDA, score standardization or joint branch fitting. Both candidate heads
+    must solve successfully before an online update changes either head.
+    """
+
+    BRANCHES = ("global", "mean")
+
+    def __init__(self, config):
+        super().__init__()
+        self.branches = nn.ModuleDict(
+            {name: RidgeClassifier(config) for name in self.BRANCHES}
+        )
+
+    def _validate_views(self, features):
+        if not isinstance(features, dict) or set(features) != set(self.BRANCHES):
+            raise ValueError("features must contain exactly global and mean views")
+        if len(features["global"]) != len(features["mean"]):
+            raise ValueError("feature views must have the same sample count")
+
+    def _update(self, features, labels, *, mapping_id, direction=1, replace=False):
+        self._validate_views(features)
+        if not isinstance(mapping_id, dict) or set(mapping_id) != set(self.BRANCHES):
+            raise ValueError("a frozen mapping fingerprint is required for each view")
+        candidates = {
+            name: classifier._prepare_update(
+                features[name],
+                labels,
+                mapping_id=mapping_id[name],
+                direction=direction,
+                replace=replace,
+            )
+            for name, classifier in self.branches.items()
+        }
+        for name, classifier in self.branches.items():
+            classifier._commit_update(candidates[name])
+        return self
+
+    def fit(self, features, labels, *, mapping_id):
+        return self._update(features, labels, mapping_id=mapping_id, replace=True)
+
+    def partial_fit(self, features, labels, *, mapping_id):
+        return self._update(features, labels, mapping_id=mapping_id)
+
+    def remove_batch(self, features, labels, *, mapping_id):
+        return self._update(features, labels, mapping_id=mapping_id, direction=-1)
+
+    def branch_scores(self, features):
+        self._validate_views(features)
+        return {
+            name: classifier(features[name])
+            for name, classifier in self.branches.items()
+        }
+
+    def forward(self, features):
+        scores = self.branch_scores(features)
+        return scores["global"] + scores["mean"]

@@ -1,10 +1,7 @@
-from transformers import CLIPVisionModel, CLIPTextModel, CLIPModel
+"""Selected CLIP vision component; importing this module loads no model library."""
+
 
 def load_clip_vision(model_id, **kwargs):
+    from transformers import CLIPVisionModel
+
     return CLIPVisionModel.from_pretrained(model_id, **kwargs)
-
-def load_clip_text(model_id, **kwargs):
-    return CLIPTextModel.from_pretrained(model_id, **kwargs)
-
-def load_clip_model(model_id, **kwargs):
-    return CLIPModel.from_pretrained(model_id, **kwargs)
