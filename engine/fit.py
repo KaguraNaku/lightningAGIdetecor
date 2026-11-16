@@ -38,6 +38,44 @@ def fit(task, loader, *, validation_loader=None, runtime, config, output_dir, pr
     return path, report
 
 
+class CheckpointImporter:
+    """Import complete native weights without opening datasets or fitting a model."""
+
+    INITIALIZATION_FIELDS = frozenset({
+        "initial_checkpoint", "init_weights", "initialization", "base_clip_checkpoint",
+    })
+
+    def __init__(self, config_path, *, model_name=None, env_file=None, legacy_weight_mode=None):
+        from .config import read_experiment
+        from .models import ModelRegistry
+        from .resources import ResourceResolver
+
+        path = Path(config_path).expanduser().resolve(strict=True)
+        config = read_experiment(path, require_fit=False, env_file=env_file)
+        model = dict(config["model"])
+        if model_name is not None:
+            model = ModelRegistry.select(model_name, model)
+        ModelRegistry.validate_factory(model)
+        native = {ModelRegistry.get(name).factory for name in ModelRegistry.NATIVE_CLASSES}
+        if ModelRegistry.resolve_factory(model["factory"]) not in native:
+            raise ValueError("Raw checkpoint import requires a native detector Task")
+        # Full detector weights replace initialization assets, not the declared
+        # architecture or preprocessing. Do not require unused ImageNet files.
+        model = {key: value for key, value in model.items()
+                 if key not in self.INITIALIZATION_FIELDS}
+        if legacy_weight_mode is not None:
+            if ModelRegistry.method_for(model) != "effort":
+                raise ValueError("--legacy-weight-mode applies only to Effort")
+            model["legacy_weight_mode"] = legacy_weight_mode
+        self.settings = ResourceResolver(path.parent, env_file=env_file).model_settings(model)
+        self.threshold = config["evaluation"]["threshold"]
+
+    def convert(self, source, destination):
+        from detectors._shared.checkpoint import convert_checkpoint
+
+        return convert_checkpoint(self.settings, source, destination, threshold=self.threshold)
+
+
 class CheckpointReference:
     """Stable identity for one native file or a fixed-eight NPZ head pair."""
     def __init__(self, path):

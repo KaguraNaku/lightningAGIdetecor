@@ -275,3 +275,30 @@ reduction is used to obtain alignment.
 Original run IDs,raw tensors,commands,environment,snapshots,failures andresource
 receipts are indexed in
 ``experiments/detector_rewrite/prodet_preparation_audit_20261104.json``.
+
+
+Author weights through the unified engine
+----------------------------------------
+
+Import complete author detector weights once, preserving their original tensor
+values and the original file. The maintained source-training preset supplies the
+existing ProDet construction, preprocessing and score policy; its ImageNet-only
+initialization asset is not opened during this full-weight import. No dataset,
+landmarks, neighbor sidecar, optimizer or training loop is needed for importing.
+
+.. code-block:: bash
+
+    uv run python engine.py import-checkpoint --model prodet \
+      --input /absolute/ProDet_best.pth \
+      --output /absolute/prodet-author/model.pth
+
+    uv run python engine.py evaluate --model prodet \
+      --checkpoint /absolute/prodet-author/model.pth \
+      --datasets configs/datasets.yaml --env-file .env \
+      --test-inputs ffpp_test ufd_test
+
+The output uses the same engine checkpoint format and ordinary evaluation path
+as other ProDet checkpoints. Existing destinations are rejected, not overwritten.
+Importing weights does not resume optimizer/RNG state, select an epoch, train the
+model or reproduce its original training run. Test manifests retain the declared
+32-frame budget; image domains use FrameAUC and video domains report VideoAUC.

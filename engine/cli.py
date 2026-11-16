@@ -217,6 +217,13 @@ def main(argv=None):
     commands.add_parser("prepare-data", help="Prepare frozen manifests; forwards to the shared data module", add_help=False)
     commands.add_parser("check-data", help="Decode manifest inputs using the shared data module", add_help=False)
     commands.add_parser("environment", help="Report installed dependency versions without model execution")
+    importer = commands.add_parser("import-checkpoint", help="Wrap complete native weights for ordinary evaluate; no training")
+    importer.add_argument("--model", choices=tuple(ModelRegistry.NATIVE_CLASSES))
+    importer.add_argument("--config", type=Path, help="Defaults to the selected model's maintained preset")
+    importer.add_argument("--env-file", type=Path)
+    importer.add_argument("--input", required=True, type=Path, help="Original complete detector checkpoint")
+    importer.add_argument("--output", required=True, type=Path, help="New engine checkpoint; existing files are preserved")
+    importer.add_argument("--legacy-weight-mode", choices=["merged", "unmerged"])
     for name in ("fit", "evaluate", "run", "check"):
         command = commands.add_parser(name)
         command.add_argument(
@@ -265,6 +272,12 @@ def main(argv=None):
         if not isinstance(declaration, dict) or not isinstance(declaration.get('model'), dict):
             raise ValueError('A supported model declaration is required')
         ModelRegistry.validate_factory(declaration['model'])
+        if args.command == "import-checkpoint":
+            from .fit import CheckpointImporter
+            converted = CheckpointImporter(args.config, model_name=args.model, env_file=args.env_file,
+                legacy_weight_mode=args.legacy_weight_mode).convert(args.input, args.output)
+            print(converted)
+            return
         if args.command != "evaluate" and ModelRegistry.method_for(declaration["model"]) in ("gend", "forada"):
             from .protocol import VideoSamplingPolicy
             VideoSamplingPolicy(declaration.get("video_sampling"))
