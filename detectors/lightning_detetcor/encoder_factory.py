@@ -10,11 +10,7 @@ ENCODERS = {
         "detectors.lightning_detetcor.encoders.clip",
         "CLIPReadoutEncoder",
     ),
-    "dinov2": ("detectors.lightning_detetcor.encoders.dinov2", "DINOv2VisionEncoder"),
-    "siglip_vision_model": (
-        "detectors.lightning_detetcor.encoders.siglip",
-        "SigLIPVisionEncoder",
-    ),
+
 }
 
 
