@@ -79,6 +79,7 @@ class _Scorer:
 
 class ImageClassificationTrainer:
     prediction_unit = "image"
+    supports_gradient_cache = False
 
     def __init__(self, model, *, origin=None, objective=None):
         self.model = model
@@ -94,6 +95,19 @@ class ImageClassificationTrainer:
     def compute_batch_loss(self, batch, images, labels, *, runtime):
         """Methods may consume aligned auxiliary inputs without replacing fit."""
         return self.compute_loss(images, labels)
+
+    @staticmethod
+    def validate_loss(loss):
+        if loss.ndim or not torch.isfinite(loss):
+            raise ValueError("Nonfinite or nonscalar classification loss")
+
+    def backward_batch(self, batch, images, labels, *, runtime, scaler):
+        """Backpropagate one logical batch; the epoch owns the optimizer step."""
+        with runtime.autocast():
+            loss = self.compute_batch_loss(batch, images, labels, runtime=runtime)
+        self.validate_loss(loss)
+        scaler.scale(loss).backward()
+        return loss.detach()
 
     def make_scorer(self):
         return _Scorer(self.model, prediction_unit=self.prediction_unit)
@@ -204,13 +218,9 @@ class ImageClassificationTrainer:
                     with self.batch_context(
                         batch, runtime=runtime, output=output, step=step
                     ):
-                        with runtime.autocast():
-                            loss = self.compute_batch_loss(
-                                batch, images, labels, runtime=runtime
-                            )
-                        if loss.ndim or not torch.isfinite(loss):
-                            raise ValueError("Nonfinite or nonscalar classification loss")
-                        scaler.scale(loss).backward()
+                        loss = self.backward_batch(
+                            batch, images, labels, runtime=runtime, scaler=scaler
+                        )
                     scaler.unscale_(optimizer)
                     if any(
                         p.grad is not None and not torch.isfinite(p.grad).all()
@@ -246,6 +256,8 @@ class ImageClassificationTrainer:
             raise ValueError(
                 "This trainer uses whole batches; microbatching changes BatchNorm semantics"
             )
+        if settings.get("gradient_cache_microbatch_size") is not None and not self.supports_gradient_cache:
+            raise ValueError("Output gradient caching is supported only by the native GenD trainer")
         epochs = integer(settings, "epochs", 10)
         patience = settings.get("patience")
         if patience is not None:

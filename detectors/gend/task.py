@@ -116,7 +116,7 @@ class GenDTask(ImageClassificationTask):
                 preprocessing["profile"] = "gend-author-pil-v1"
                 preprocessing["augmentation"] = True
                 origin.update(objective="CE+.5*uniformity+.1*label_alignment",
-                              author_revision="387a42266dd385fbe8f7626c5d3aa03eea3bfaab",
+                              author_revision="a31acda1f8c6017b4753a8b39bfb9214127ad3b3",
                               protocol="author method under common train8/test32 source-only validation")
         if construction["attention_implementation"] not in ("eager", "sdpa"):
             raise ValueError("GenD attention implementation must be eager or sdpa")

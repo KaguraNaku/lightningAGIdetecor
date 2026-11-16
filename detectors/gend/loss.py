@@ -1,4 +1,4 @@
-"""GenD CE + label alignment + hyperspherical uniformity, author revision 387a422."""
+"""GenD CE + label alignment + hyperspherical uniformity, author revision a31acda."""
 import torch
 from torch import nn
 from torch.nn import functional as F
