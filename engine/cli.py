@@ -236,6 +236,9 @@ def main(argv=None):
         if not isinstance(declaration, dict) or not isinstance(declaration.get('model'), dict):
             raise ValueError('A supported model declaration is required')
         ModelRegistry.validate_factory(declaration['model'])
+        if (args.command != 'evaluate'
+                and declaration['model'].get('factory') == ModelRegistry.LEGACY_LIGHTNING):
+            raise ValueError('New Lightning training requires the formal fixed-eight Task')
         directory = execute(
             args.command,
             args.config,
