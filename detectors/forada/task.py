@@ -91,6 +91,3 @@ class ForAdaTask(ImageClassificationTask):
             settings={"epochs": 60, **settings}, output_dir=output_dir)
         self._ready = True
         return report
-
-def create_task(settings, *, state=None):
-    return ForAdaTask(settings, state=state)

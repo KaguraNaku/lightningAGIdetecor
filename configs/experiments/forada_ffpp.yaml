@@ -8,7 +8,7 @@ runtime:
   log_level: INFO
   output_dir: ../../outputs/ffpp/forada
 model:
-  factory: detectors.forada.experiment:create_task
+  factory: detectors.forada.task:ForAdaTask
   base_clip_checkpoint: ${WEIGHT_ROOT}/forada-clip-native.pth
   augmentation: false
 loader:

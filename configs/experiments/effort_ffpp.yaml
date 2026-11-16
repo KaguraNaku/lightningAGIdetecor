@@ -8,7 +8,7 @@ runtime:
   log_level: INFO
   output_dir: ../../outputs/ffpp/effort
 model:
-  factory: detectors.effort.experiment:create_task
+  factory: detectors.effort.task:EffortTask
   backbone_id: openai/clip-vit-large-patch14
   revision: 32bd64288804d66eefd0ccbe215aa642df71cc41
   attention_implementation: sdpa

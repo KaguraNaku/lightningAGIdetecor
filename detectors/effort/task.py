@@ -123,7 +123,3 @@ class EffortTask:
             "origin": self.origin,
             "state_dict": {k: v.detach().cpu() for k, v in self.model.state_dict().items()},
         }
-
-
-def create_task(settings, *, state=None):
-    return EffortTask(settings, state=state)

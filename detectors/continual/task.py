@@ -5,7 +5,8 @@ from pathlib import Path
 import torch
 
 from data.manifest import sha256
-from detectors.adaptation.experiment import UFDAdaptationTask
+from detectors.adaptation.task import UFDAdaptationTask
+from engine.models import ModelRegistry
 
 
 class ContinualUFDTask(UFDAdaptationTask):
@@ -16,7 +17,7 @@ class ContinualUFDTask(UFDAdaptationTask):
             if sha256(Path(ref['path'])) != ref['sha256']:
                 raise ValueError('Previous stage model envelope checksum changed')
             saved = torch.load(ref['path'], weights_only=True, mmap=True, map_location='cpu')
-            if saved['model']['factory'] != 'detectors.continual.experiment:create_task':
+            if ModelRegistry.resolve_factory(saved['model']['factory']) != 'detectors.continual.task:ContinualUFDTask':
                 raise ValueError('A later stage must use the prior selected continual model')
             super().__init__({}, state=saved['task'])
         else:
@@ -31,7 +32,3 @@ class ContinualUFDTask(UFDAdaptationTask):
         if not spec or ((spec['stage_index'] > 0) != bool(self.stage_parent)):
             raise ValueError('Continual fitting requires aligned explicit stage and previous-model references')
         return super().fit(*args, **kwargs)
-
-
-def create_task(settings, *, state=None):
-    return ContinualUFDTask(settings, state=state)

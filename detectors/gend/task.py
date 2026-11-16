@@ -156,7 +156,3 @@ class GenDTask(ImageClassificationTask):
             settings={"epochs": 11, **settings},
             output_dir=output_dir,
         )
-
-
-def create_task(settings, *, state=None):
-    return GenDTask(settings, state=state)

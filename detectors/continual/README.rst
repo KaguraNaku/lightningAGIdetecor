@@ -1,7 +1,7 @@
 Selected-state UFD continuation
 ===============================
 
-``detectors.continual.experiment:create_task`` composes the existing native UFD
+``detectors.continual.task:ContinualUFDTask`` composes the existing native UFD
 adapter. The first stage uses FF++ source-selected parameters and a fresh UFD
 native optimizer. Later stages restore the previous source-selected ``best.pth``
 model, native optimizer moments/steps and parameter groups, scaler, objective,

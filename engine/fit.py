@@ -59,12 +59,12 @@ class CheckpointReference:
 def restore(path):
     path = Path(path)
     if path.is_dir():
-        from detectors.lightning_detetcor.fixed8_task import Fixed8LightningTask
+        from detectors.lightning.task import LightningTask
         settings = {"mapping_path": str(path / "mapping.npz"),
                     "coefficients_path": str(path / "coefficients.npz")}
-        task = Fixed8LightningTask(settings)
+        task = LightningTask(settings)
         checkpoint = {"version": 1,
-                      "model": {"factory": "detectors.lightning_detetcor.fixed8_task:create_task", **settings},
+                      "model": {"factory": "detectors.lightning.task:LightningTask", **settings},
                       "score": {"direction": "higher_is_fake", "threshold": 0.0},
                       "provenance": {"operation": "read_existing_fixed8_npz"}}
         return task, checkpoint

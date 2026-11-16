@@ -9,6 +9,7 @@ from torch import nn
 from torch.utils.data import Sampler
 
 from engine.runtime import create_task as create_native_task
+from engine.models import ModelRegistry
 
 ALLOWED = {'xception', 'f3net', 'core', 'ucf', 'prodet', 'effort', 'gend', 'forada'}
 DOMAINS = {'real': 0, 'FF_Deepfakes': 1, 'FF_Face2Face': 2,
@@ -131,7 +132,7 @@ class UFDAdaptationTask:
                 if actual != settings['parent_sha256']:
                     raise ValueError('FF++ parent checkpoint checksum differs')
                 checkpoint = torch.load(path, map_location='cpu', weights_only=True, mmap=True)
-                if checkpoint['model']['factory'] != self.base_model['factory']:
+                if ModelRegistry.resolve_factory(checkpoint['model']['factory']) != ModelRegistry.resolve_factory(self.base_model['factory']):
                     raise ValueError('Parent method differs')
                 self.task = create_native_task(checkpoint['model'], state=checkpoint['task'])
                 self.adaptation['parent'] = {'path': str(path), 'sha256': actual,
@@ -176,7 +177,3 @@ class UFDAdaptationTask:
     def state_dict(self):
         return {'version': 1, 'base_model': deepcopy(self.base_model),
                 'base_task': self.task.state_dict(), 'adaptation': deepcopy(self.adaptation)}
-
-
-def create_task(settings, *, state=None):
-    return UFDAdaptationTask(settings, state=state)

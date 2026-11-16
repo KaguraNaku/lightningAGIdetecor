@@ -298,7 +298,3 @@ class ProDetTask(ImageClassificationTask):
             "preprocessing": deepcopy(self.preprocessing),
             "origin": deepcopy(self.origin),
         }
-
-
-def create_task(settings, *, state=None):
-    return ProDetTask(settings, state=state)

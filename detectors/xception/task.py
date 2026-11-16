@@ -75,7 +75,3 @@ class XceptionTask(ImageClassificationTask):
             origin=origin,
             ready=weights is not None,
         )
-
-
-def create_task(settings, *, state=None):
-    return XceptionTask(settings, state=state)

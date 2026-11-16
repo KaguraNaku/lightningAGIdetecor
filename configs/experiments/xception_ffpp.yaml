@@ -8,7 +8,7 @@ runtime:
   log_level: INFO
   output_dir: ../../outputs/ffpp/xception
 model:
-  factory: detectors.xception.experiment:create_task
+  factory: detectors.xception.task:XceptionTask
   mode: original
   init_weights: ${WEIGHT_ROOT}/xception-b5690688.pth
   augmentation: true

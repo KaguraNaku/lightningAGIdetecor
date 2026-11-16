@@ -1,4 +1,5 @@
-"""Authoritative nine-model catalog; importing it loads no model backend."""
+"""Nine-model catalog and the single compatibility boundary for saved factories."""
+
 from dataclasses import dataclass
 
 
@@ -10,23 +11,51 @@ class ModelSpec:
 
 
 class ModelRegistry:
-    SPECS = tuple(ModelSpec(name, 'detectors.'+name+'.experiment:create_task')
-                  for name in ('xception','ucf','f3net','core','gend','effort','forada','prodet')) + (
-        ModelSpec('lightning','detectors.lightning_detetcor.fixed8_task:create_task','analytic'),)
-    WRAPPERS = frozenset(('detectors.adaptation.experiment:create_task',
-                          'detectors.continual.experiment:create_task'))
-    LEGACY_LIGHTNING = 'detectors.lightning_detetcor.experiment:create_task'
+    """Resolve historical factory names without importing any model backend.
+
+    Saved checkpoints retain their original declarations. Dispatch resolves an
+    alias to a canonical class constructor in memory; no alias modules or
+    process-global module substitutions are installed.
+    """
+
+    NATIVE_CLASSES = {
+        'xception': 'XceptionTask', 'ucf': 'UCFTask', 'f3net': 'F3NetTask',
+        'core': 'CORETask', 'gend': 'GenDTask', 'effort': 'EffortTask',
+        'forada': 'ForAdaTask', 'prodet': 'ProDetTask',
+    }
+    SPECS = tuple(ModelSpec(name, f'detectors.{name}.task:{class_name}')
+                  for name, class_name in NATIVE_CLASSES.items()) + (
+        ModelSpec('lightning', 'detectors.lightning.task:LightningTask', 'analytic'),)
+    WRAPPERS = frozenset(('detectors.adaptation.task:UFDAdaptationTask',
+                          'detectors.continual.task:ContinualUFDTask'))
+    LEGACY_LIGHTNING = 'detectors.lightning.compatibility.task:LightningTask'
+    FACTORY_ALIASES = {
+        **{f'detectors.{name}.experiment:create_task': f'detectors.{name}.task:{class_name}'
+           for name, class_name in NATIVE_CLASSES.items()},
+        'detectors.adaptation.experiment:create_task': 'detectors.adaptation.task:UFDAdaptationTask',
+        'detectors.continual.experiment:create_task': 'detectors.continual.task:ContinualUFDTask',
+        'detectors.lightning_detetcor.fixed8_task:create_task': 'detectors.lightning.task:LightningTask',
+        'detectors.lightning_detetcor.fixed8_task:Fixed8LightningTask': 'detectors.lightning.task:LightningTask',
+        'detectors.lightning_detetcor.experiment:create_task': LEGACY_LIGHTNING,
+        'detectors.lightning_detetcor.experiment:LightningTask': LEGACY_LIGHTNING,
+    }
+
+    @classmethod
+    def resolve_factory(cls, factory):
+        """Canonicalize known names; preserve unrelated engine test adapters."""
+        if not isinstance(factory, str) or ':' not in factory:
+            raise ValueError('Factory must be module:callable')
+        return cls.FACTORY_ALIASES.get(factory, factory)
 
     @classmethod
     def default_config(cls, name):
         from pathlib import Path
         cls.get(name)
-        filename = 'ffpp_cross_dataset.yaml' if name == 'lightning' else name + '_ffpp.yaml'
-        return Path(__file__).resolve().parents[1] / 'configs' / 'experiments' / filename
+        return Path(__file__).resolve().parents[1] / 'configs' / 'experiments' / (name + '_ffpp.yaml')
 
     @classmethod
     def describe(cls):
-        return [{'name':spec.name,'factory':spec.factory,'fit_kind':spec.fit_kind}
+        return [{'name':spec.name, 'factory':spec.factory, 'fit_kind':spec.fit_kind}
                 for spec in cls.SPECS]
 
     @classmethod
@@ -38,22 +67,29 @@ class ModelRegistry:
 
     @classmethod
     def method_for(cls, model):
-        if model.get('method'):
-            return model['method']
-        base = model.get('base_model', {})
-        factory = base.get('factory', '')
+        factory = model.get('factory')
+        canonical = cls.resolve_factory(factory) if factory else None
         for spec in cls.SPECS:
-            if spec.factory == factory:
+            if canonical == spec.factory:
                 return spec.name
-        return None
+        if canonical == cls.LEGACY_LIGHTNING:
+            return 'lightning'
+        if canonical in cls.WRAPPERS:
+            return model.get('method') or cls.method_for(model.get('base_model', {}))
+        return model.get('method')
 
     @classmethod
     def validate_factory(cls, model):
-        factory = model.get('factory')
+        factory = cls.resolve_factory(model.get('factory'))
         if factory in cls.WRAPPERS:
             method = cls.method_for(model)
-            if method not in {s.name for s in cls.SPECS if s.fit_kind=='gradient'}:
+            if method not in cls.NATIVE_CLASSES:
                 raise ValueError('Adaptation wrappers require one of the eight native models')
+            base = model.get('base_model')
+            if base is not None:
+                cls.validate_factory(base)
+                if cls.method_for(base) != method:
+                    raise ValueError('Adaptation method differs from its base model')
         elif factory not in {s.factory for s in cls.SPECS} | {cls.LEGACY_LIGHTNING}:
             raise ValueError('Factory is outside the nine-model scope: '+str(factory))
         return model
@@ -62,11 +98,13 @@ class ModelRegistry:
     def select(cls, name, model):
         spec = cls.get(name)
         result = dict(model)
-        result.setdefault('factory',spec.factory)
+        result.setdefault('factory', spec.factory)
         cls.validate_factory(result)
-        if result['factory'] in cls.WRAPPERS:
+        canonical = cls.resolve_factory(result['factory'])
+        if canonical in cls.WRAPPERS:
             if cls.method_for(result) != name:
                 raise ValueError('Selected model differs from adaptation method')
-        elif result['factory'] != spec.factory:
+        elif canonical != spec.factory:
             raise ValueError('Selected model differs from configured factory')
+        result['factory'] = canonical
         return result

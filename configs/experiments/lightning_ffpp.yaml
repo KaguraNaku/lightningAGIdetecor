@@ -9,7 +9,7 @@ runtime:
   log_level: INFO
   output_dir: ../../outputs/lightning/ffpp
 model:
-  factory: detectors.lightning_detetcor.fixed8_task:create_task
+  factory: detectors.lightning.task:LightningTask
   route: ffpp
   backbone_id: openai/clip-vit-large-patch14
   revision: 32bd64288804d66eefd0ccbe215aa642df71cc41

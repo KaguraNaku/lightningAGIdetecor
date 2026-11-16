@@ -155,7 +155,7 @@ class MappingAccumulator:
         return SpectralMapping(mean, scale, np.stack(bases)), {"spectral_residuals": errors}
 
 
-class Fixed8AnalyticModel:
+class AnalyticReadout:
     """One head's two maps, statistics and equal-weight folded coefficients."""
     def __init__(self, mappings, statistics=None, coefficients=None):
         if set(mappings) != set(BRANCHES):

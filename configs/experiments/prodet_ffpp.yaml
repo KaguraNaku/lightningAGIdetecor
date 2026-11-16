@@ -8,7 +8,7 @@ runtime:
   log_level: INFO
   output_dir: ../../outputs/ffpp/prodet
 model:
-  factory: detectors.prodet.experiment:create_task
+  factory: detectors.prodet.task:ProDetTask
   init_weights: ${WEIGHT_ROOT}/efficientnet-b4-6ed6700e.pth
   data_profile: native_entrypoint
   score_type: probability

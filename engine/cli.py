@@ -237,7 +237,7 @@ def main(argv=None):
             raise ValueError('A supported model declaration is required')
         ModelRegistry.validate_factory(declaration['model'])
         if (args.command != 'evaluate'
-                and declaration['model'].get('factory') == ModelRegistry.LEGACY_LIGHTNING):
+                and ModelRegistry.resolve_factory(declaration['model'].get('factory')) == ModelRegistry.LEGACY_LIGHTNING):
             raise ValueError('New Lightning training requires the formal fixed-eight Task')
         directory = execute(
             args.command,

@@ -8,7 +8,7 @@ runtime:
   log_level: INFO
   output_dir: ../../outputs/ffpp/ucf
 model:
-  factory: detectors.ucf.experiment:create_task
+  factory: detectors.ucf.task:UCFTask
   init_weights: ${WEIGHT_ROOT}/xception-b5690688.pth
   specific_classes: 5
   specific_label_map:

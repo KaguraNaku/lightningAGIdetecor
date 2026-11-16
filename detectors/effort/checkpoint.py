@@ -34,7 +34,7 @@ def read_legacy(path):
 
 
 def convert_checkpoint(source, destination, *, backbone_id, revision=None, local_files_only=False):
-    from .experiment import EffortTask
+    from .task import EffortTask
 
     source, destination = Path(source).expanduser().resolve(), Path(destination).expanduser().resolve()
     if source == destination or destination.exists():
@@ -48,7 +48,7 @@ def convert_checkpoint(source, destination, *, backbone_id, revision=None, local
     task = EffortTask(settings)
     # Omit the source path from construction settings: restoration is self-contained.
     model = {k: v for k, v in settings.items() if k != "initial_checkpoint"}
-    model["factory"] = "detectors.effort.experiment:create_task"
+    model["factory"] = "detectors.effort.task:EffortTask"
     envelope = {
         "version": 1, "model": model, "task": task.state_dict(),
         "score": {"direction": "higher_is_fake", "threshold": 0.5},
@@ -59,7 +59,7 @@ def convert_checkpoint(source, destination, *, backbone_id, revision=None, local
 
 
 def main():
-    from .experiment import BACKBONE_ID
+    from .task import BACKBONE_ID
 
     parser = argparse.ArgumentParser(description="Convert author Effort weights for experiment.py evaluate")
     parser.add_argument("--input", type=Path, required=True)

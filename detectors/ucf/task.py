@@ -150,7 +150,3 @@ class UCFTask(ImageClassificationTask):
         )
         self._ready = True
         return report
-
-
-def create_task(settings, *, state=None):
-    return UCFTask(settings, state=state)

@@ -54,7 +54,9 @@ class Runtime:
 
 
 def create_task(model, *, state=None) -> ExperimentTask:
-    module, name = model["factory"].split(":", 1)
+    from .models import ModelRegistry
+
+    module, name = ModelRegistry.resolve_factory(model["factory"]).split(":", 1)
     factory = getattr(import_module(module), name)
     settings = {k: v for k, v in model.items() if k != "factory"}
     task = factory(settings, state=state)

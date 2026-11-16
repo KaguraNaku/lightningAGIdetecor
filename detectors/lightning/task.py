@@ -10,50 +10,15 @@ import os
 
 import numpy as np
 import torch
-from torch import nn
-from torch.nn import functional as F
 
-from .fixed8 import (BRANCHES, LAYERS, Fixed8AnalyticModel, MappingAccumulator,
+from .model import (BRANCHES, LAYERS, AnalyticReadout, MappingAccumulator,
                      SpectralMapping, SufficientStatistics)
 
-
-class Fixed8Backbone(nn.Module):
-    def __init__(self, vision):
-        super().__init__()
-        self.vision = vision.eval().requires_grad_(False)
-
-    def train(self, mode=True):
-        return super().train(False)
-
-    @torch.inference_mode()
-    def forward(self, images):
-        hidden = self.vision(pixel_values=images, output_hidden_states=True).hidden_states[1:]
-        if len(hidden) != 24:
-            raise ValueError("The formal fixed-eight protocol requires 24 CLIP blocks")
-        return {
-            'cls': torch.stack([F.normalize(hidden[i][:, 0], dim=-1) for i in LAYERS], 1),
-            'mean': torch.stack([F.normalize(hidden[i][:, 1:].mean(1), dim=-1) for i in LAYERS], 1),
-        }
+from .encoder import CLIPEncoder
+from .detector import LightningDetector
 
 
-class Fixed8Detector(nn.Module):
-    def __init__(self, backbone, coefficients):
-        super().__init__()
-        self.backbone = backbone
-        for branch in BRANCHES:
-            self.register_buffer(branch, torch.as_tensor(coefficients[branch], dtype=torch.float64))
-        self.register_buffer('bias', torch.as_tensor(coefficients['bias'], dtype=torch.float64))
-
-    @torch.inference_mode()
-    def forward(self, images):
-        features = self.backbone(images)
-        result = self.bias.expand(len(images)).clone()
-        for branch in BRANCHES:
-            result += features[branch].double().flatten(1) @ getattr(self, branch).flatten()
-        return result
-
-
-class Fixed8LightningTask:
+class LightningTask:
     VERSION = 1
     MODEL_ID = 'openai/clip-vit-large-patch14'
     REVISION = '32bd64288804d66eefd0ccbe215aa642df71cc41'
@@ -77,7 +42,7 @@ class Fixed8LightningTask:
             mappings = {b: SpectralMapping(**self._numpy(state['mapping'][b])) for b in BRANCHES}
             statistics = {b: SufficientStatistics.from_state(self._numpy(s))
                           for b, s in state.get('statistics', {}).items()}
-            self.model = Fixed8AnalyticModel(mappings, statistics, self._numpy(state['coefficients']))
+            self.model = AnalyticReadout(mappings, statistics, self._numpy(state['coefficients']))
         else:
             self.encoder_spec = {
                 'model_id': settings.get('backbone_id', self.MODEL_ID),
@@ -87,7 +52,7 @@ class Fixed8LightningTask:
             if settings.get('cache_dir'):
                 self.encoder_spec['cache_dir'] = str(Path(settings['cache_dir']).expanduser())
             if settings.get('mapping_path'):
-                self.model = Fixed8AnalyticModel.from_npz(
+                self.model = AnalyticReadout.from_npz(
                     self._asset(settings['mapping_path']),
                     self._asset(settings['coefficients_path']) if settings.get('coefficients_path') else None,
                     {b: self._asset(p) for b, p in settings.get('statistics', {}).items()})
@@ -118,7 +83,7 @@ class Fixed8LightningTask:
         if isinstance(value, torch.Tensor):
             return value.detach().cpu().numpy()
         if isinstance(value, dict):
-            return {k: Fixed8LightningTask._numpy(v) for k, v in value.items()}
+            return {k: LightningTask._numpy(v) for k, v in value.items()}
         return value
 
     @staticmethod
@@ -126,7 +91,7 @@ class Fixed8LightningTask:
         if isinstance(value, np.ndarray):
             return torch.from_numpy(value.copy())
         if isinstance(value, dict):
-            return {k: Fixed8LightningTask._tensors(v) for k, v in value.items()}
+            return {k: LightningTask._tensors(v) for k, v in value.items()}
         return value
 
     def _ensure_processor(self):
@@ -146,7 +111,7 @@ class Fixed8LightningTask:
         if self.backbone is None:
             from transformers import CLIPVisionModel
             spec = dict(self.encoder_spec);model_id = spec.pop('model_id')
-            self.backbone = Fixed8Backbone(CLIPVisionModel.from_pretrained(model_id, **spec))
+            self.backbone = CLIPEncoder(CLIPVisionModel.from_pretrained(model_id, **spec))
         if self._device != runtime.device:
             self.backbone.to(runtime.device).eval(); self._device = runtime.device
             self.detector = None
@@ -185,7 +150,7 @@ class Fixed8LightningTask:
             for batch in loader:
                 features = self._readouts(batch, runtime); labels = batch['labels'].cpu().numpy()
                 for b in BRANCHES:accumulators[b].update(features[b], labels)
-            self.model = Fixed8AnalyticModel({b: accumulators[b].fit(128)[0] for b in BRANCHES})
+            self.model = AnalyticReadout({b: accumulators[b].fit(128)[0] for b in BRANCHES})
         elif self.model is None:
             raise ValueError('FF++/incremental routes require their frozen mapping or saved parent')
         if route == 'ffpp' and self.model.statistics:
@@ -222,7 +187,7 @@ class Fixed8LightningTask:
             raise ValueError('Fit or restore a fixed-eight head before prediction')
         backbone = self._ensure_backbone(runtime)
         if self.detector is None:
-            self.detector = Fixed8Detector(backbone, self.model.coefficients).to(runtime.device).eval()
+            self.detector = LightningDetector(backbone, self.model.coefficients).to(runtime.device).eval()
         return self.detector(images.to(runtime.device, non_blocking=True))
 
     def state_dict(self):
@@ -235,7 +200,3 @@ class Fixed8LightningTask:
                 'statistics':self._tensors({b:s.state_dict() for b,s in self.model.statistics.items()}),
                 'coefficients':self._tensors(self.model.coefficients),
                 'training_ids':sorted(self.training_ids)}
-
-
-def create_task(settings, *, state=None):
-    return Fixed8LightningTask(settings, state=state)

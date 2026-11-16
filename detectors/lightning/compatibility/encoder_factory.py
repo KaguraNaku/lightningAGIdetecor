@@ -7,7 +7,7 @@ from backbones.load_backbone import load_backbone
 
 ENCODERS = {
     "clip_vision_model": (
-        "detectors.lightning_detetcor.encoders.clip",
+        "detectors.lightning.compatibility.encoders.clip",
         "CLIPReadoutEncoder",
     ),
 
@@ -28,7 +28,7 @@ def load_encoder(model_id, *, readout="global", **kwargs):
     family = model.config.model_type
     # Keep existing CLIP CLS checkpoints and the original public class intact.
     if family == "clip_vision_model" and readout == "global":
-        module = import_module("detectors.lightning_detetcor.encoder")
+        module = import_module("detectors.lightning.compatibility.encoder")
         return module.CLIPVisionEncoder(model, model_id=str(model_id))
     if family not in ENCODERS:
         raise ValueError(f"Unsupported vision encoder: {family}")
