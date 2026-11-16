@@ -76,6 +76,9 @@ class ForAdaTask(ImageClassificationTask):
                 origin["initialization"] = "explicit_random_constructed_fixture"
         super().__init__(model, construction=construction, preprocessing=preprocessing,
                          origin=origin, ready=weights is not None)
+        self.author_source = settings.get("training_profile") == "author_ffpp_8_32" or origin.get("source_supervision") == "localized_author_masks"
+        if self.author_source:
+            self.origin["source_supervision"] = "localized_author_masks"
 
     def get_collate_fn(self, stage):
         if stage not in ("train", "validation", "evaluation"):
@@ -83,7 +86,7 @@ class ForAdaTask(ImageClassificationTask):
         return ForAdaCollator(self.preprocessing, training=stage == "train")
 
     def prepare_dataset(self, dataset, *, stage):
-        return ForAdaDataset(dataset) if stage == "train" else dataset
+        return ForAdaDataset(dataset, require_localized=self.author_source) if stage == "train" else dataset
 
     def fit(self, loader, *, validation_loader=None, runtime, settings, output_dir):
         report = ForAdaTrainer(self.model, origin=self.origin).fit(

@@ -51,11 +51,12 @@ def split_images_by_patch(mask_image, patch_size, mode='normal', need_boundary=F
         return labels
 
 class ForAdaDataset:
-    def __init__(self, base):
+    def __init__(self, base, *, require_localized=False):
         self.base = base
         self.records, self.header = base.records, base.header
         self.root, self.manifest_path = base.root, base.manifest_path
         self.bindings = {}
+        localized = 0
         for row in self.records:
             if row.label == 0:
                 continue
@@ -66,12 +67,22 @@ class ForAdaDataset:
             if not path.is_relative_to(self.root.resolve()) or sha256(path) != entry["sha256"]:
                 raise ValueError("ForAda mask path escapes root or checksum differs")
             self.bindings[row.id] = dict(entry)
+            if require_localized:
+                mask = cv2.imread(str(path), cv2.IMREAD_GRAYSCALE)
+                if mask is None:
+                    raise ValueError("Cannot decode author-supervision mask")
+                localized += int(mask.min() != mask.max())
+        if require_localized and (self.header["dataset"] != "FaceForensics++" or localized == 0):
+            raise ValueError("ForAda author FF++ training needs localized manipulation masks; whole-image labels are not boundary supervision")
+        self.supervision_summary = {"fake_masks": len(self.bindings), "localized_masks": localized if require_localized else None,
+                                    "policy": "localized_author_masks" if require_localized else "explicit_bound_masks"}
 
     def __len__(self):
         return len(self.base)
 
     def selection_receipt(self):
         return {"mask_policy": "real_zero;fake_explicit_sha256_bound;no_synthesis_or_substitution",
+                "supervision": self.supervision_summary,
                 "mask_bindings": self.bindings}
 
     def __getitem__(self, index):

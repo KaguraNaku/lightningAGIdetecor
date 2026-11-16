@@ -10,8 +10,9 @@ def solve_ridge(
     *,
     block_size: int = 64,
     ridge_lambda: float = 1.0,
+    sample_count: int = 1,
 ):
-    """Solve a ridge system with layer-specific penalties.
+    """Solve a uniform ridge system; block_size describes stored feature layout only.
 
     Parameters
     ----------
@@ -22,7 +23,7 @@ def solve_ridge(
     block_size : int, default=64
         Number of features per layer.
     ridge_lambda : float, default=1.0
-        Positive multiplier for the layer-specific penalties.
+        Positive coefficient in the mean-squared-error objective.
 
     Returns
     -------
@@ -30,7 +31,9 @@ def solve_ridge(
         Fitted regression coefficients.
     """
     _validate_ridge_inputs(gram, rhs, block_size, ridge_lambda)
-    penalty = _build_block_penalty(gram, block_size, ridge_lambda)
+    if type(sample_count) is not int or sample_count < 1:
+        raise ValueError("Positive sample_count required")
+    penalty = torch.full_like(rhs, ridge_lambda * sample_count)
     system_matrix = gram + torch.diag(penalty)
     weights = torch.linalg.solve(system_matrix, rhs)
     if not torch.isfinite(weights).all():
@@ -57,7 +60,7 @@ def fit_ridge(
     block_size : int, default=64
         Number of features per layer.
     ridge_lambda : float, default=1.0
-        Positive multiplier for the layer-specific penalties.
+        Positive coefficient in the mean-squared-error objective.
 
     Returns
     -------
@@ -69,7 +72,7 @@ def fit_ridge(
     gram = features.T @ features
     targets = labels - labels.mean()
     rhs = features.T @ targets
-    return solve_ridge(gram, rhs, block_size=block_size, ridge_lambda=ridge_lambda)
+    return solve_ridge(gram, rhs, block_size=block_size, ridge_lambda=ridge_lambda, sample_count=len(labels))
 
 
 def _validate_config(dimension, block_size, ridge_lambda):
@@ -91,21 +94,6 @@ def _validate_ridge_inputs(gram, rhs, block_size, ridge_lambda):
     _validate_config(gram.shape[0], block_size, ridge_lambda)
     if not torch.isfinite(gram).all() or not torch.isfinite(rhs).all():
         raise ValueError("gram and rhs must be finite")
-
-
-def _build_block_penalty(gram, block_size, ridge_lambda):
-    diagonal = torch.diag(gram)
-
-    # group by layers
-    blocks = diagonal.reshape(-1, block_size)
-    layer_penalties = blocks.sum(dim=1) / block_size
-    penalty = ridge_lambda * layer_penalties.repeat_interleave(block_size)
-
-    if not torch.isfinite(penalty).all():
-        raise ValueError("Regularization penalties must be finite")
-    if not (penalty > 0).all():
-        raise ValueError("Degenerate feature block")
-    return penalty
 
 
 def _validate_features(features, dimension=None, *, require_samples=False):
@@ -235,15 +223,9 @@ class RidgeClassifier(nn.Module):
         # Center targets using the complete accumulated label mean.
         rhs = feature_label_sum - (label_sum / sample_count) * feature_sum
 
-        # With a frozen feature mapping, repeating the full data k times scales
-        # G, rhs and the block penalty R by k. With fixed lambda, (kG + kR) w = k rhs has the same solution.
-        # This guarantees replication invariance, not invariance to new samples
-        # with a different distribution. Extra sample-count scaling is disabled.
-        # effective_lambda = self.ridge_lambda * max(
-        #     1.0, (sample_count / self.dimension) ** 0.5
-        # )
+        # Mean-loss uniform ridge is invariant to repeating the full dataset.
         return solve_ridge(
-            gram, rhs, block_size=self.block_size, ridge_lambda=self.ridge_lambda
+            gram, rhs, block_size=self.block_size, ridge_lambda=self.ridge_lambda, sample_count=int(sample_count)
         )
 
     def _validate_removal(

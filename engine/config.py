@@ -16,10 +16,16 @@ def read_experiment(path, *, require_fit=True, variables=None, env_file=None):
     if not isinstance(config, dict) or config.get("version") != 1:
         raise ValueError("Experiment must be a mapping with version: 1")
     config = deepcopy(config)
+    if "video_sampling" in config:
+        from .protocol import VideoSamplingPolicy
+        VideoSamplingPolicy(config["video_sampling"])
     for section in ("model", "loader", "fit", "evaluation", "runtime"):
         if section in config and not isinstance(config[section], dict):
             raise ValueError(f"{section} must be a mapping")
     model = config.get("model", {})
+    if (config.get("model", {}).get("training_profile") in ("author_ln_l2_ua", "author_ffpp_8_32")
+            and "video_sampling" not in config):
+        raise ValueError("Author-method experiments require the strict train8_test32 manifest contract")
     factory = model.get("factory", "")
     if require_fit and (
         not isinstance(factory, str)

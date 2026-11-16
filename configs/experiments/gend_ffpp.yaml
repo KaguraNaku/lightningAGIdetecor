@@ -1,4 +1,4 @@
-# Cloud-verified source fit settings; choose test inputs explicitly through the common CLI.
+# Author method under the common strict train8/test32, source-only validation protocol.
 version: 1
 seed: 1024
 runtime:
@@ -6,16 +6,17 @@ runtime:
   precision: fp32
   allow_tf32: false
   log_level: INFO
-  output_dir: ../../outputs/ffpp/gend
+  output_dir: ../../outputs/author-8-32/ffpp/gend
 model:
   factory: detectors.gend.task:GenDTask
   head: LinearNorm
-  augmentation: false
+  augmentation: true
   initialization: pretrained_backbone
   backbone_id: openai/clip-vit-large-patch14
   revision: 32bd64288804d66eefd0ccbe215aa642df71cc41
+  training_profile: author_ln_l2_ua
 loader:
-  batch_size: 24
+  batch_size: 128
   num_workers: 4
   persistent_workers: false
   shuffle: false
@@ -37,20 +38,25 @@ inputs:
     dataset: FaceForensics++
     split: test
     manifest: ${MANIFEST_ROOT}/FaceForensics++-test-frames-32.jsonl
+    batch_size: 32
   ufd_test:
     dataset: UniversalFakeDetect
     split: test
     manifest: ${MANIFEST_ROOT}/UniversalFakeDetect-test.jsonl
+    batch_size: 32
 fit:
   input: training
   validation_input: validation
-  epochs: 11
+  epochs: 30
   patience: 3
   monitor: video.auc
-  optimizer: adam
-  learning_rate: 0.0002
-  weight_decay: 0.0005
+  optimizer: adamw
+  learning_rate: 0.0003
+  weight_decay: 0.0
   min_delta: 0.0001
+  min_learning_rate: 1.0e-06
+  cycle_epochs: 10
+  warmup_epochs: 0
 evaluation:
   inputs:
   - validation
@@ -58,3 +64,7 @@ evaluation:
   video_aggregation: mean
   group_by:
   - category
+video_sampling:
+  name: train8_test32
+  train_frames: 8
+  test_frames: 32

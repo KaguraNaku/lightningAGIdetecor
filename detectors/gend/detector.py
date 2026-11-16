@@ -39,6 +39,12 @@ class GenDDetector(nn.Module):
             parameter.requires_grad_(True)
 
     def forward(self, images):
+        return self.forward_outputs(images)["cls"]
+
+    def forward_outputs(self, images):
         # The source explicitly disables CUDA AMP for the complete GenD model.
         with torch.autocast(device_type=images.device.type, enabled=False):
-            return self.model(images)
+            features = self.model.feature_extractor(images)
+            embeddings = F.normalize(features, p=2, dim=1)
+            logits = self.model.model.linear(embeddings if self.model.model.normalize_inputs else features)
+            return {"cls": logits, "l2_embeddings": embeddings}

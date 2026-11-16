@@ -220,7 +220,7 @@ experiment. Native parquet pixel parity is not established by this PNG audit.
 
 An actual original full ProDet model at its constructed native checkpoint was
 evaluated on32 of those PNG views. Its probabilities match the Task, a freshly
-converted/restored engine Task envelope and a separate ``experiment.py evaluate``
+converted/restored engine Task envelope and a separate ``engine.py evaluate``
 process exactly. Image32/video4 metrics match independent sklearn calculations
 and all six CSV/JSON cells. These fixture labels and constructed heads are not
 historical trained-score or full-corpus evidence.

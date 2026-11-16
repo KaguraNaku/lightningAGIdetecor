@@ -29,3 +29,9 @@ needed to read historical checkpoints and run their existing parity tests. It is
 not another model in the public catalog. Historical factory strings are resolved
 by the common factory registry rather than alias files or `sys.modules` tricks.
 The rename preserves the existing checkpoint format/version and parameter keys.
+
+New fits use one uniform mean-loss coefficient, `model.ridge_lambda` (default
+0.15): `(G + n*lambda*I)w = X.T @ (y-mean(y))`. Layer-wise trace penalties
+and the older Task fitting entry have been removed. Historical saved heads
+remain readable for inference with their stored coefficients unchanged; they
+cannot become parents of new uniform-ridge fits.

@@ -61,7 +61,7 @@ def convert_checkpoint(source, destination, *, backbone_id, revision=None, local
 def main():
     from .task import BACKBONE_ID
 
-    parser = argparse.ArgumentParser(description="Convert author Effort weights for experiment.py evaluate")
+    parser = argparse.ArgumentParser(description="Convert author Effort weights for engine.py evaluate")
     parser.add_argument("--input", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--backbone-id", default=BACKBONE_ID)

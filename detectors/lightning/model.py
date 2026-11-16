@@ -1,7 +1,7 @@
 """Fixed-eight analytic heads and bounded sufficient statistics.
 
-These objects implement the cloud protocol: fixed real-centred spectral maps,
-label-centred block-trace ridge, and equal raw CLS/patch-mean scores. Validation
+These objects retain fixed real-centred spectral maps with the new uniform penalty,
+label-centred uniform ridge, and equal raw CLS/patch-mean scores. Validation
 labels never enter the solver and the model never searches layers or epochs.
 """
 from dataclasses import dataclass
@@ -46,14 +46,15 @@ class SufficientStatistics:
         return type(self)(self.g + other.g, self.h + other.h, self.sz + other.sz,
                           self.sy + other.sy, self.n + other.n)
 
-    def solve(self, rank=128, eta=.15):
+    def solve(self, rank=128, ridge_lambda=.15):
         if self.n <= 0 or not 0 < self.sy < self.n or self.g.shape[0] % rank:
             raise ValueError("Invalid sample counts or projected block width")
         q = self.h - self.sy / self.n * self.sz
-        energy = np.diag(self.g).reshape(-1, rank).sum(1) / rank
-        penalty = eta * np.repeat(energy, rank)
-        if not np.isfinite(penalty).all() or not (penalty > 0).all():
-            raise ValueError("Nonpositive block trace penalty")
+        # Mean squared error + lambda * ||w||²: one coefficient for every
+        # feature, independent of layer traces, partitioning and sample count.
+        if isinstance(ridge_lambda, bool) or not np.isfinite(ridge_lambda) or ridge_lambda <= 0:
+            raise ValueError("Uniform ridge_lambda must be finite and positive")
+        penalty = self.n * ridge_lambda
         system = self.g.copy()
         system.flat[::len(system) + 1] += penalty
         w = la.cho_solve(la.cho_factor(system, lower=True, check_finite=False), q,
@@ -63,7 +64,8 @@ class SufficientStatistics:
             raise ValueError("Analytic ridge normal-equation check failed")
         return w, {"relative_normal_equation_residual": residual, "n": self.n,
                    "n_fake": int(self.sy), "label_mean": self.sy / self.n,
-                   "eta": eta, "block_penalties": (eta * energy).tolist()}
+                   "regularization": "uniform_mean_loss", "ridge_lambda": ridge_lambda,
+                   "system_diagonal_penalty": penalty}
 
 
 @dataclass
@@ -185,12 +187,12 @@ class AnalyticReadout:
             self.statistics[branch] = (self.statistics[branch].add(extra)
                                       if branch in self.statistics else extra)
 
-    def solve(self):
+    def solve(self, ridge_lambda=.15):
         coefficients, audits, bias = {}, {}, 0.
         for branch in BRANCHES:
             if branch not in self.statistics:
                 raise ValueError("Source sufficient statistics required before solving")
-            weights, audits[branch] = self.statistics[branch].solve(self.mappings[branch].rank)
+            weights, audits[branch] = self.statistics[branch].solve(self.mappings[branch].rank, ridge_lambda)
             beta, offset = self.mappings[branch].fold(weights)
             coefficients[branch] = .5 * beta
             bias += .5 * offset

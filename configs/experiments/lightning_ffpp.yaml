@@ -1,5 +1,4 @@
-# Formal fixed-eight Lightning. WEIGHT_ROOT contains a verified FF++ mapping;
-# the shared frozen CLIP encoder is resolved from the pinned local HF cache.
+# Frozen fixed-eight mapping; new fits use a single uniform ridge coefficient.
 version: 1
 seed: 1024
 runtime:
@@ -15,6 +14,7 @@ model:
   revision: 32bd64288804d66eefd0ccbe215aa642df71cc41
   local_files_only: true
   mapping_path: ${WEIGHT_ROOT}/lightning-fixed8-mapping.npz
+  ridge_lambda: 0.15
 loader:
   batch_size: 32
   num_workers: 4
@@ -43,9 +43,16 @@ inputs:
 fit:
   input: training
   validation_input: validation
-  # Validation is reported only. No epochs, patience, head/layer selection or LDA.
+  # Validation is report-only; no epochs, patience, head/layer selection or LDA.
 evaluation:
-  inputs: [ffpp_test, ufd_test]
+  inputs:
+  - ffpp_test
+  - ufd_test
   threshold: 0.0
   video_aggregation: mean
-  group_by: [category]
+  group_by:
+  - category
+video_sampling:
+  name: train8_test32
+  train_frames: 8
+  test_frames: 32

@@ -6,6 +6,7 @@ they never duplicate encoder weights or persist per-image feature matrices.
 """
 from pathlib import Path
 import hashlib
+import math
 import os
 
 import numpy as np
@@ -31,6 +32,9 @@ class LightningTask:
         self._device = None
         self.model = None
         self.training_ids = set()
+        self.regularization = {"kind": "uniform_mean_loss", "ridge_lambda": settings.get("ridge_lambda", .15)}
+        if state is None and any(key in settings for key in ("block_penalties", "eta", "layer_penalties", "regularization")):
+            raise ValueError("Lightning supports only uniform ridge_lambda; layered regularization was removed")
         if state is not None:
             if state.get('format') != 'fixed8-cls-mean' or state.get('version') != self.VERSION:
                 raise ValueError('Unsupported fixed-eight Lightning checkpoint')
@@ -39,6 +43,7 @@ class LightningTask:
             self.encoder_spec = state['encoder']
             self._processor_state = state['processor']
             self.training_ids = set(state.get('training_ids', []))
+            self.regularization = state.get('regularization', {"kind": "historical_readonly"})
             mappings = {b: SpectralMapping(**self._numpy(state['mapping'][b])) for b in BRANCHES}
             statistics = {b: SufficientStatistics.from_state(self._numpy(s))
                           for b, s in state.get('statistics', {}).items()}
@@ -56,17 +61,27 @@ class LightningTask:
                     self._asset(settings['mapping_path']),
                     self._asset(settings['coefficients_path']) if settings.get('coefficients_path') else None,
                     {b: self._asset(p) for b, p in settings.get('statistics', {}).items()})
+                if settings.get('coefficients_path') or settings.get('statistics'):
+                    self.regularization = {"kind": "historical_readonly"}
             if settings.get('parent_checkpoint'):
                 from engine.fit import restore
                 parent, _ = restore(self._asset(settings['parent_checkpoint']))
                 if not isinstance(parent, type(self)) or not parent.model.statistics:
                     raise ValueError('Incremental Lightning requires a fixed-eight parent with statistics')
                 self.model = parent.model
+                if ("ridge_lambda" in settings
+                        and settings["ridge_lambda"] != parent.regularization.get("ridge_lambda")):
+                    raise ValueError("Incremental uniform ridge_lambda must match the parent")
+                self.regularization = parent.regularization.copy()
                 self.training_ids = set(parent.training_ids)
                 self.encoder_spec, self._processor_state = parent.encoder_spec, parent._processor_state
         if (self.encoder_spec['model_id'] != self.MODEL_ID
                 or self.encoder_spec['revision'] != self.REVISION):
             raise ValueError('The formal fixed-eight encoder identity is pinned')
+        if self.regularization.get("kind") == "uniform_mean_loss":
+            value = self.regularization.get("ridge_lambda")
+            if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or value <= 0:
+                raise ValueError("Uniform ridge_lambda must be finite and positive")
 
     @staticmethod
     def _asset(value):
@@ -136,6 +151,10 @@ class LightningTask:
 
     def fit(self, loader, *, validation_loader=None, runtime, settings, output_dir):
         self._validate_runtime(runtime)
+        if self.regularization.get("kind") != "uniform_mean_loss":
+            raise ValueError("Historical Lightning heads are inference-only; start a new uniform-ridge fit")
+        if any(key in settings for key in ("eta", "block_penalties", "layer_penalties", "ridge_lambda")):
+            raise ValueError("Declare the single uniform coefficient as model.ridge_lambda")
         route = self.settings.get('route', 'ffpp')
         if route not in ('ffpp', 'fresh_UFD', 'incremental_FFpp_UFD'):
             raise ValueError('Unknown fixed-eight training route')
@@ -167,7 +186,7 @@ class LightningTask:
         if not seen:
             raise ValueError('No successful source images')
         self.training_ids.update(seen)
-        audits = self.model.solve();self.detector = None
+        audits = self.model.solve(self.regularization["ridge_lambda"]);self.detector = None
         from engine.evaluate import coverage, evaluate
         output = Path(output_dir); output.mkdir(parents=True, exist_ok=True)
         report = {'fit_kind':'analytic_fixed8_equal_raw_cls_mean', 'epochs':None,
@@ -199,4 +218,5 @@ class LightningTask:
                 'mapping':self._tensors({b:m.state_dict() for b,m in self.model.mappings.items()}),
                 'statistics':self._tensors({b:s.state_dict() for b,s in self.model.statistics.items()}),
                 'coefficients':self._tensors(self.model.coefficients),
+                'regularization':dict(self.regularization),
                 'training_ids':sorted(self.training_ids)}

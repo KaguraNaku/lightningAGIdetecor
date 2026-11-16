@@ -193,7 +193,7 @@ def build_global_mean_detector(backbone, config, *, selected_layers=None, device
     hidden CLS tokens and normalized patch means, not the final projected image
     embedding. Other adapters retain their native definition of global pooling.
     Defaults: eight evenly spaced layers, rank 128, real variance epsilon 1e-6,
-    block-trace Ridge lambda 0.15. Set layers_count and input_dim explicitly.
+    uniform mean-loss Ridge lambda 0.15. Set layers_count and input_dim explicitly.
     ``device`` controls mapping/solver buffers independently of the backbone.
     """
     if getattr(backbone, "readout", None) != "global_mean":

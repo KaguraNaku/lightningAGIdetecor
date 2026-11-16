@@ -108,11 +108,19 @@ def execute(
         )
 
         def make_loader(name, stage="evaluation"):
+            from .protocol import VideoSamplingPolicy
+            policy = config.get("video_sampling")
+            def adapt(dataset):
+                if policy is not None:
+                    audit = VideoSamplingPolicy(policy).validate(dataset.header, dataset.records)
+                    status.setdefault("sampling", {})[name] = audit
+                adapter = dataset_adapter_for(task, stage)
+                return adapter(dataset) if adapter is not None else dataset
             loader = create_input_loader(
                 input_settings(config, name),
                 config=data,
                 collate_fn=collator_for(task, stage),
-                dataset_adapter=dataset_adapter_for(task, stage),
+                dataset_adapter=adapt,
                 sampler_factory=sampler_factory_for(task, stage),
                 seed=config["seed"],
             )
@@ -196,12 +204,20 @@ def execute(
 
 
 def main(argv=None):
+    import sys
+    argv = list(sys.argv[1:] if argv is None else argv)
+    if argv and argv[0] in ("prepare-data", "check-data"):
+        from data.cli import prepare_main, check_main
+        return {"prepare-data": prepare_main, "check-data": check_main}[argv[0]](argv[1:])
     parser = argparse.ArgumentParser(
         description="Run model-independent image detection experiments"
     )
     commands = parser.add_subparsers(dest="command", required=True)
     commands.add_parser("models", help="List the nine models without loading any backend")
-    for name in ("fit", "evaluate", "run"):
+    commands.add_parser("prepare-data", help="Prepare frozen manifests; forwards to the shared data module", add_help=False)
+    commands.add_parser("check-data", help="Decode manifest inputs using the shared data module", add_help=False)
+    commands.add_parser("environment", help="Report installed dependency versions without model execution")
+    for name in ("fit", "evaluate", "run", "check"):
         command = commands.add_parser(name)
         command.add_argument(
             "--config", type=Path, help="Experiment YAML; defaults to the selected model's maintained preset"
@@ -220,6 +236,19 @@ def main(argv=None):
         if name == "evaluate":
             command.add_argument("--checkpoint", type=Path, required=True)
     args = parser.parse_args(argv)
+    if args.command == "environment":
+        import importlib.metadata
+        import json
+        import platform
+        versions = {}
+        for package in ("torch", "torchvision", "transformers", "Pillow", "numpy", "scipy", "albumentations"):
+            try:
+                versions[package] = importlib.metadata.version(package)
+            except importlib.metadata.PackageNotFoundError:
+                versions[package] = None
+        print(json.dumps({"python": platform.python_version(), "packages": versions,
+                          "GPU_forward_executed": False}, indent=2))
+        return
     if args.command == "models":
         import json
         print(json.dumps({"models":ModelRegistry.describe()},indent=2))
@@ -236,9 +265,18 @@ def main(argv=None):
         if not isinstance(declaration, dict) or not isinstance(declaration.get('model'), dict):
             raise ValueError('A supported model declaration is required')
         ModelRegistry.validate_factory(declaration['model'])
+        if args.command != "evaluate" and ModelRegistry.method_for(declaration["model"]) in ("gend", "forada"):
+            from .protocol import VideoSamplingPolicy
+            VideoSamplingPolicy(declaration.get("video_sampling"))
         if (args.command != 'evaluate'
                 and ModelRegistry.resolve_factory(declaration['model'].get('factory')) == ModelRegistry.LEGACY_LIGHTNING):
             raise ValueError('New Lightning training requires the formal fixed-eight Task')
+        if args.command == "check":
+            import json
+            from .inspection import ExperimentInspector
+            print(json.dumps(ExperimentInspector().inspect(args.config, datasets=args.datasets,
+                env_file=args.env_file, model=args.model), indent=2))
+            return
         directory = execute(
             args.command,
             args.config,
@@ -256,3 +294,7 @@ def main(argv=None):
     except Exception as error:
         parser.exit(1, f"{type(error).__name__}: {error}\n")
     print(directory)
+
+
+if __name__ == "__main__":
+    main()

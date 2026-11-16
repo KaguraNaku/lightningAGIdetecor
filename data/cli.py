@@ -10,7 +10,7 @@ from .prepare import prepare_manifest
 from .manifest import read_metadata
 
 
-def prepare_main():
+def prepare_main(argv=None):
     parser = argparse.ArgumentParser(
         description="Index images into a manifest without copying data"
     )
@@ -25,7 +25,7 @@ def prepare_main():
         type=int,
         help="Smoke-test subset only; never use for reported metrics",
     )
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
     config = DataConfig(args.config, args.env_file)
     suffix = f"-smoke-{args.limit}" if args.limit else ""
     frames = (
@@ -58,7 +58,7 @@ def prepare_main():
     print(json.dumps(report, indent=2))
 
 
-def check_main():
+def check_main(argv=None):
     parser = argparse.ArgumentParser(
         description="Decode manifest images and optionally check backbone image processing"
     )
@@ -79,7 +79,7 @@ def check_main():
         "--backbone",
         help="Optional model ID for AutoImageProcessor; may download processor config",
     )
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
     if args.count is not None and args.count < 1:
         parser.error("--count must be positive")
     if args.experiment:

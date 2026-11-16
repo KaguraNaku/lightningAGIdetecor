@@ -1,9 +1,4 @@
-"""Lightning's experiment adapter; the shared engine knows none of these details."""
-
-import json
-import logging
-import math
-from pathlib import Path
+"""Read historical checkpoints; fitting uses only the formal uniform-ridge Task."""
 
 import torch
 from transformers import (
@@ -15,28 +10,9 @@ from transformers import (
 
 from backbones.load_backbone import load_backbone
 from data.loader import ImageCollator
-from engine.evaluate import coverage
 
-from .calibration import calibrate, load_detector
+from .calibration import load_detector
 from .encoder import CLIPVisionEncoder
-
-logger = logging.getLogger(__name__)
-
-
-def estimate_fit_bytes(samples, layers, channels, width, topk):
-    """Estimate explicit buffers plus 25% workspace allowance, not a hard RSS cap.
-
-    Includes raw features, projections/casts, per-layer temporaries and ridge
-    systems. Excludes backbone weights, decoder caches and allocator overhead.
-    """
-    projected_dim = layers * width
-    selected_dim = topk * width
-    raw = samples * layers * channels * 4
-    projected = samples * projected_dim * 20
-    layer_work = samples * channels * 16 + channels * channels * 16
-    systems = (projected_dim**2 + selected_dim**2) * 8 * 6
-    return math.ceil((raw + projected + layer_work + systems + samples * 16) * 1.25)
-
 
 class LightningTask:
     def __init__(self, settings, *, state=None):
@@ -69,88 +45,8 @@ class LightningTask:
             self.config["selected_layers"] = settings["selected_layers"]
         self.collate_fn = ImageCollator(self.processor)
 
-    @torch.no_grad()
-    def fit(self, loader, *, validation_loader=None, runtime, settings, output_dir):
-        if loader.dataset.header["split"] != "train":
-            raise ValueError("Lightning calibration requires a train manifest")
-        if {record.label for record in loader.dataset.records} != {0, 1}:
-            raise ValueError("Calibration requires both real and fake samples")
-        cfg = self.config
-        layers, channels = cfg["layers_count"], cfg["input_dim"]
-        width, topk = cfg["output_dim"], cfg["topk"]
-        if type(width) is not int or not 1 <= width <= channels:
-            raise ValueError("output_dim must be between 1 and backbone hidden_size")
-        if type(topk) is not int or not 1 <= topk <= layers:
-            raise ValueError("topk must be between 1 and backbone layer count")
-        budget = settings.get("feature_memory_budget_gib", 8)
-        if (
-            isinstance(budget, bool)
-            or not isinstance(budget, (int, float))
-            or not math.isfinite(budget)
-            or budget <= 0
-        ):
-            raise ValueError("feature_memory_budget_gib must be finite and positive")
-        count = len(loader.dataset)
-        estimate = estimate_fit_bytes(count, layers, channels, width, topk)
-        logger.info(
-            "Estimated feature/fitting buffers %.2f GiB; budget %.2f GiB",
-            estimate / 2**30,
-            budget,
-        )
-        if estimate > budget * 2**30:
-            raise MemoryError(
-                f"Estimated feature/fitting buffers {estimate / 2**30:.2f} GiB exceed "
-                f"feature_memory_budget_gib={budget}; use a reviewed smaller manifest "
-                "or explicitly increase the budget"
-            )
-        features = torch.empty((count, layers, channels), dtype=torch.float32)
-        labels = torch.empty(count, dtype=torch.long)
-        seen = set()
-        position = 0
-        output_dir = Path(output_dir)
-        self.encoder.to(runtime.device).eval()
-        with (output_dir / "samples.jsonl").open("w") as stream:
-            for batch in loader:
-                with runtime.autocast():
-                    batch_features = self.encoder(
-                        batch["pixel_values"].to(runtime.device, non_blocking=True)
-                    )
-                batch_features = batch_features.detach().float().cpu()
-                size = len(batch["labels"])
-                if (
-                    batch_features.shape != (size, layers, channels)
-                    or not torch.isfinite(batch_features).all()
-                ):
-                    raise ValueError("Encoder returned invalid calibration features")
-                if len(batch["metadata"]) != size or position + size > count:
-                    raise ValueError("Calibration batch size or metadata mismatch")
-                features[position : position + size].copy_(batch_features)
-                labels[position : position + size].copy_(batch["labels"])
-                for metadata, label in zip(
-                    batch["metadata"], batch["labels"].tolist(), strict=True
-                ):
-                    sample_id = metadata["id"]
-                    if sample_id in seen:
-                        raise ValueError(f"Duplicate calibration sample: {sample_id}")
-                    seen.add(sample_id)
-                    stream.write(json.dumps({**metadata, "label": label}) + "\n")
-                position += size
-        report = coverage(loader.dataset, seen, output_dir)
-        if not position:
-            raise ValueError("No images successfully decoded for calibration")
-        self.encoder.cpu()
-        self.model = calibrate(
-            self.encoder, features[:position], labels[:position], cfg
-        )
-        self._inference_device = None
-        report.update(
-            estimated_fit_bytes=estimate,
-            selected_layers=self.model.mapping.selected_layers.tolist(),
-        )
-        logger.info(
-            "Fitted %d samples; selected layers %s", position, report["selected_layers"]
-        )
-        return report
+    def fit(self, *args, **kwargs):
+        raise ValueError("Historical Lightning is inference-only; use the formal uniform-ridge Task")
 
     def get_collate_fn(self, stage):
         return self.collate_fn

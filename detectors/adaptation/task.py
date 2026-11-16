@@ -135,6 +135,9 @@ class UFDAdaptationTask:
                 if ModelRegistry.resolve_factory(checkpoint['model']['factory']) != ModelRegistry.resolve_factory(self.base_model['factory']):
                     raise ValueError('Parent method differs')
                 self.task = create_native_task(checkpoint['model'], state=checkpoint['task'])
+                validate_parent = getattr(self.task, "validate_training_parent", None)
+                if callable(validate_parent):
+                    validate_parent(self.base_model)
                 self.adaptation['parent'] = {'path': str(path), 'sha256': actual,
                     'selected_epoch': checkpoint['fit_report']['best_epoch']}
                 if method == 'ucf':

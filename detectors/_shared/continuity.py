@@ -115,7 +115,10 @@ class StageContinuation:
                 raise ValueError('Native optimizer parameter ordering or type changed')
             before = [{k: v for k, v in g.items() if k != 'params'} for g in optimizer.state_dict()['param_groups']]
             carried = [{k: v for k, v in g.items() if k != 'params'} for g in selected['optimizer']['param_groups']]
-            if before != carried:
+            check_contract = getattr(trainer, 'validate_optimizer_contract', None)
+            if callable(check_contract):
+                check_contract(before, carried)
+            elif before != carried:
                 raise ValueError('Native optimizer hyperparameters changed at stage boundary')
             trainer.load_selected_weights(selected['state_dict']) if hasattr(trainer, 'load_selected_weights') else trainer.model.load_state_dict(selected['state_dict'], strict=True)
             objective = getattr(trainer, 'objective', None)

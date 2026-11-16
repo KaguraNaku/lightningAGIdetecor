@@ -93,7 +93,7 @@ def main():
     import yaml
 
     parser = argparse.ArgumentParser(
-        description="Convert image detector weights for experiment.py evaluate"
+        description="Convert image detector weights for engine.py evaluate"
     )
     parser.add_argument("--config", type=Path, required=True)
     parser.add_argument("--input", type=Path, required=True)
