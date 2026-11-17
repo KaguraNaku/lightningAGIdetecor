@@ -242,6 +242,9 @@ def main(argv=None):
         )
         if name == "evaluate":
             command.add_argument("--checkpoint", type=Path, required=True)
+        if name == "check":
+            command.add_argument("--batches", type=int, default=0,
+                help="Also initialize the selected Task and decode this many real batches per input on CPU; no model forward or training")
     args = parser.parse_args(argv)
     if args.command == "environment":
         import importlib.metadata
@@ -291,7 +294,7 @@ def main(argv=None):
             import json
             from .inspection import ExperimentInspector
             print(json.dumps(ExperimentInspector().inspect(args.config, datasets=args.datasets,
-                env_file=args.env_file, model=args.model), indent=2))
+                env_file=args.env_file, model=args.model, batches=args.batches), indent=2))
             return
         directory = execute(
             args.command,

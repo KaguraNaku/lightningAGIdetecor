@@ -68,7 +68,7 @@ by ``landmarks`` and ``.png`` replaced by ``.npy``.
       --dataset FaceForensics++ --split train --frames-per-video 8 \
       --source-manifest /absolute/manifests/FaceForensics++-train-frames-8.jsonl
     # Prepare val/test manifests with --frames-per-video 32 as usual.
-    uv run python engine.py check --model prodet --env-file .env
+    uv run python engine.py check --model prodet --env-file .env --batches 1
     uv run python engine.py fit --model prodet --env-file .env
     uv run python engine.py evaluate --model prodet --env-file .env \
       --checkpoint /absolute/run/fit/model.pth --test-inputs ffpp_test ufd_test
@@ -87,6 +87,12 @@ actual input rows before creating any derived views; no extra source frames
 are loaded for synthesis. The source-val selection, deterministic shared
 worker seeding and test protocol are our common experimental controls, so
 this is the author method under our controls, not an identical paper rerun.
+
+``check --batches 1`` additionally loads the actual initialization checkpoint and
+decodes one production batch per input on CPU, with the configured worker/batch
+settings. Training checks preserve24 quadruples/96 views and ordered float
+domain labels. It checks clean source validation and configured test inputs
+through their normal adapters. No model forward, optimizer or training runs.
 
 Verified mathematical scope
 ---------------------------
