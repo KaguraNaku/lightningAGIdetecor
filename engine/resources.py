@@ -18,7 +18,7 @@ class ResourceResolver:
     FILE_FIELDS = frozenset({
         "init_weights", "initial_checkpoint", "base_clip_checkpoint",
         "checkpoint", "mapping_path", "coefficients_path", "statistics_path",
-        "parent_checkpoint",
+        "parent_checkpoint", "training_neighbors",
     })
     DIRECTORY_FIELDS = frozenset({"cache_dir", "assets_dir", "model_dir"})
 

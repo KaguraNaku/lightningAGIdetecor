@@ -63,6 +63,10 @@ class CheckpointImporter:
         # architecture or preprocessing. Do not require unused ImageNet files.
         model = {key: value for key, value in model.items()
                  if key not in self.INITIALIZATION_FIELDS}
+        if ModelRegistry.method_for(model) == "prodet":
+            # Training-only pair bindings do not participate in inference or
+            # complete-weight import. Preserve all architecture/score settings.
+            model.pop("training_neighbors", None)
         if legacy_weight_mode is not None:
             if ModelRegistry.method_for(model) != "effort":
                 raise ValueError("--legacy-weight-mode applies only to Effort")

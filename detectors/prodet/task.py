@@ -22,6 +22,7 @@ from .dataset import ProDetDataset, ProDetDataCollator
 from .detector import ProDetDetector
 from .images import ProDetImageDataset
 from .trainer import ProDetTrainer
+from .protocol import neighbor_identity
 
 
 PROFILES = {"native_entrypoint", "specialized_quadruples"}
@@ -88,6 +89,18 @@ class ProDetTask(ImageClassificationTask):
     prediction_unit = "image"
 
     def __init__(self, settings, *, state=None):
+        settings = dict(settings)
+        if isinstance(settings.get("training_neighbors"), str):
+            if state is None:
+                settings["training_neighbors"] = neighbor_identity(settings["training_neighbors"])
+            else:
+                self.validate_state(state)
+                saved_neighbors = state["construction"].get("training_neighbors")
+                if (not isinstance(saved_neighbors, dict)
+                        or str(Path(settings["training_neighbors"]).expanduser().resolve()) != saved_neighbors.get("path")):
+                    raise ValueError("ProDet requested neighbor path differs from saved Task")
+                # Restoring a complete model must not open training sidecars.
+                settings["training_neighbors"] = deepcopy(saved_neighbors)
         recipe = selected_recipe()
         require_recipe(recipe)
         allowed = set(recipe) | {
@@ -138,8 +151,16 @@ class ProDetTask(ImageClassificationTask):
                 "source_only_selection": True,
                 "exact_optimizer_rng_resume_supported": False,
                 "full_experiment_reproduction": False,
-                "data_recipe_note": "native_entrypoint preserves actual generic selector;specialized_quadruples is explicit SBIPlusV2 wiring repair",
+                "data_recipe_note": "specialized_quadruples executes the author SBIPlusV2 four-domain recipe;native_entrypoint is historical binary compatibility",
             }
+            if profile == "specialized_quadruples":
+                origin["author_method"] = {
+                    "repository": "https://github.com/beautyremain/ProDet",
+                    "revision": "050856249569f8ae6de4e847265f9d6e2139b3b2",
+                    "data": "SBIPlusV2 real/blendfake/bifake/deepfake;24quadruples->96views",
+                    "controls": "strict train8/test32;source-only validation;train-only nearest pool",
+                    "identical_paper_run_claimed": False,
+                }
             self.validate_metadata(construction, preprocessing, origin)
             initial = settings.get("initial_checkpoint")
             if initial is not None:
@@ -232,6 +253,10 @@ class ProDetTask(ImageClassificationTask):
             stage == "train"
             and self.construction["data_profile"] == "specialized_quadruples"
         ):
+            if dataset.header["dataset"] == "FaceForensics++":
+                from engine.protocol import VideoSamplingPolicy
+                VideoSamplingPolicy({"name": "train8_test32", "train_frames": 8,
+                                     "test_frames": 32}).validate(dataset.header, dataset.records)
             if self.construction["training_neighbors"] is None:
                 raise ValueError(
                     "ProDet specialized training requires explicit training_neighbors"

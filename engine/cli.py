@@ -278,9 +278,12 @@ def main(argv=None):
                 legacy_weight_mode=args.legacy_weight_mode).convert(args.input, args.output)
             print(converted)
             return
-        if args.command != "evaluate" and ModelRegistry.method_for(declaration["model"]) in ("gend", "forada"):
+        if args.command != "evaluate" and ModelRegistry.method_for(declaration["model"]) in ("gend", "forada", "prodet"):
             from .protocol import VideoSamplingPolicy
             VideoSamplingPolicy(declaration.get("video_sampling"))
+            if (ModelRegistry.resolve_factory(declaration["model"].get("factory")) == ModelRegistry.get("prodet").factory
+                    and declaration["model"].get("data_profile") != "specialized_quadruples"):
+                raise ValueError("New ProDet training requires author specialized_quadruples; legacy checkpoints remain evaluable")
         if (args.command != 'evaluate'
                 and ModelRegistry.resolve_factory(declaration['model'].get('factory')) == ModelRegistry.LEGACY_LIGHTNING):
             raise ValueError('New Lightning training requires the formal fixed-eight Task')

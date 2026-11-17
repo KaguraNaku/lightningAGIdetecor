@@ -20,6 +20,8 @@ def prepare_main(argv=None):
     parser.add_argument("--split", required=True, choices=["train", "val", "test"])
     parser.add_argument("--output", type=Path)
     parser.add_argument("--frames-per-video", type=int)
+    parser.add_argument("--model", choices=["prodet"], help="Bind model-specific training data through the same entry point")
+    parser.add_argument("--source-manifest", type=Path, help="Existing train8 manifest for ProDet source preparation")
     parser.add_argument(
         "--limit",
         type=int,
@@ -27,6 +29,17 @@ def prepare_main(argv=None):
     )
     args = parser.parse_args(argv)
     config = DataConfig(args.config, args.env_file)
+    if args.model == "prodet":
+        if (args.dataset != "FaceForensics++" or args.split != "train"
+                or args.frames_per_video != 8 or args.limit is not None or args.source_manifest is None):
+            parser.error("ProDet preparation requires FF++ train, --frames-per-video 8, --source-manifest and no --limit")
+        from detectors.prodet.protocol import ProDetSourcePreparer
+        dataset = ManifestDataset(args.source_manifest, config)
+        output = args.output or config.manifest_dir() / "FaceForensics++-train-prodet-bindings.jsonl"
+        print(json.dumps(ProDetSourcePreparer().prepare(dataset, output), indent=2))
+        return
+    if args.source_manifest is not None:
+        parser.error("--source-manifest requires --model prodet")
     suffix = f"-smoke-{args.limit}" if args.limit else ""
     frames = (
         f"-frames-{args.frames_per_video}" if args.frames_per_video else "-all-frames"

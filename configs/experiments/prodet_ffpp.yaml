@@ -1,4 +1,4 @@
-# Cloud-verified source fit settings; choose test inputs explicitly through the common CLI.
+# Author SBIPlusV2 method with source-only selection and enforced train8/test32.
 version: 1
 seed: 1024
 runtime:
@@ -6,11 +6,12 @@ runtime:
   precision: fp32
   allow_tf32: false
   log_level: INFO
-  output_dir: ../../outputs/ffpp/prodet
+  output_dir: ../../outputs/author-8-32/ffpp/prodet
 model:
   factory: detectors.prodet.task:ProDetTask
   init_weights: ${WEIGHT_ROOT}/efficientnet-b4-6ed6700e.pth
-  data_profile: native_entrypoint
+  data_profile: specialized_quadruples
+  training_neighbors: ${MANIFEST_ROOT}/FaceForensics++-train-prodet-bindings.neighbors.json
   score_type: probability
 loader:
   batch_size: 32
@@ -24,8 +25,9 @@ inputs:
   training:
     dataset: FaceForensics++
     split: train
-    manifest: ${MANIFEST_ROOT}/FaceForensics++-train-frames-8.jsonl
+    manifest: ${MANIFEST_ROOT}/FaceForensics++-train-prodet-bindings.jsonl
     batch_size: 24
+    num_workers: 8
     shuffle: true
   validation:
     dataset: FaceForensics++
@@ -36,10 +38,12 @@ inputs:
     dataset: FaceForensics++
     split: test
     manifest: ${MANIFEST_ROOT}/FaceForensics++-test-frames-32.jsonl
+    batch_size: 32
   ufd_test:
     dataset: UniversalFakeDetect
     split: test
     manifest: ${MANIFEST_ROOT}/UniversalFakeDetect-test.jsonl
+    batch_size: 32
 fit:
   input: training
   validation_input: validation
@@ -48,13 +52,19 @@ fit:
   optimizer: adam
   learning_rate: 0.0002
   weight_decay: 0.0005
+  betas: [0.9, 0.999]
+  eps: 0.00000001
   disk_saved_tensors: false
   disk_reserve_gib: 8
-  patience: 3
-  min_delta: 0.0001
+  patience: null
+  min_delta: 0.0
 evaluation:
   inputs:
   - validation
   threshold: 0.5
   video_aggregation: mean
   group_by: []
+video_sampling:
+  name: train8_test32
+  train_frames: 8
+  test_frames: 32

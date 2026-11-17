@@ -18,10 +18,11 @@ draws remain CPU draws;CUDA copies alone are ported to the operand device.
 Data recipes require explicit wiring
 -----------------------------------
 
-The actual local ``train.py`` does not recognize ``dataset_type=sbiplus_v2``.
-Its executed selector chooses the generic base dataset andbatch24 binary images.
-The model still divides this batch into four segments;this does not establish
-the intended real/blend/BI/deepfake data semantics.
+The maintained ``configs/experiments/prodet_ffpp.yaml`` now selects
+``specialized_quadruples``: the author's SBIPlusV2 data recipe. The previous
+``native_entrypoint`` selected ordinary binary images; that historical recipe
+remains readable for checkpoint evaluation, but the public engine refuses new
+training with it. Existing results keep their original protocol identities.
 
 The separately defined ``SBIPlusV2Dataset`` instead collates24 quadruples into
 96 images inreal/blend/BI/deepfake order,withoriginal float labels0/1/3/2.
@@ -37,6 +38,55 @@ Keep these recipes distinct;
 do not flatten specialized domain
 labels to binary loss targets orsilently describe a wiring repair as untouched
 ``train.py`` behavior. The source epoch loop is0..20 inclusive21 epochs.
+
+Maintained author method with strict 8/32 sampling
+------------------------------------------------
+
+Reference: ``beautyremain/ProDet`` revision
+``050856249569f8ae6de4e847265f9d6e2139b3b2``,
+``training/config/prodet.yaml`` and ``training/dataset/sbiplus_dataset_v2.py``.
+The preset uses ImageNet EfficientNet-B4, RGB256, half-mean/std normalization,
+whole-face SBI plus soft BI, top-three foreground choice, three experts,
+feature drift/mixing and the original combined loss. Adam uses lr2e-4,
+weight_decay5e-4, betas(.9,.999), eps1e-8, no LR scheduler. Training uses 24
+quadruples (96 model images), eight workers and 21 epochs; no patience-based
+early termination. Validation/test batches are32. Source validation chooses
+the best checkpoint; target scores never choose training parameters.
+
+Prepare the ordinary FF++ train8 manifest and then bind existing native
+256-coordinate landmark NPY files through the same engine. Missing/invalid
+landmarks fail before training; there is no zero-landmark or binary fallback.
+Set ``MANIFEST_ROOT`` and ``WEIGHT_ROOT`` in the environment file. Landmarks
+must have the same dataset-relative layout as images with ``frames`` replaced
+by ``landmarks`` and ``.png`` replaced by ``.npy``.
+
+.. code-block:: bash
+
+    uv run python engine.py prepare-data --env-file .env \
+      --dataset FaceForensics++ --split train --frames-per-video 8
+    uv run python engine.py prepare-data --env-file .env --model prodet \
+      --dataset FaceForensics++ --split train --frames-per-video 8 \
+      --source-manifest /absolute/manifests/FaceForensics++-train-frames-8.jsonl
+    # Prepare val/test manifests with --frames-per-video 32 as usual.
+    uv run python engine.py check --model prodet --env-file .env
+    uv run python engine.py fit --model prodet --env-file .env
+    uv run python engine.py evaluate --model prodet --env-file .env \
+      --checkpoint /absolute/run/fit/model.pth --test-inputs ffpp_test ufd_test
+
+Preparation writes a new bound manifest, a hashed ``.neighbors.json`` and a
+``.preparation.json`` receipt. The nearest100 KDTree uses flattened float32
+landmarks, following DeepfakeBench's ``generate_xray_nearest.py``. Its pool is
+restricted to real images already in the exact train8 manifest; the upstream
+helper included all splits, which would violate source isolation here. This
+documented adaptation does not claim to reproduce the author's unavailable
+original pickle. The original ordered same-video filter remains unchanged.
+Only the first three remaining neighbors are sampled by BI. The 32 quadruple
+slots per identity group are the author's 8 frames times four manipulation
+domains, not 32 distinct frames from any source video. The engine checks the
+actual input rows before creating any derived views; no extra source frames
+are loaded for synthesis. The source-val selection, deterministic shared
+worker seeding and test protocol are our common experimental controls, so
+this is the author method under our controls, not an identical paper rerun.
 
 Verified mathematical scope
 ---------------------------
@@ -258,8 +308,9 @@ The unified Task/Trainer/preset are prepared and the inference/conversion/CLI
 workflow is verified on declared native PNG fixtures. The method remains pending
 the actual full native fit/gradient and complete-regression gates. Detector
 weight import and Task state restore do not resume optimizer/RNG training state.
-The Dataset requires explicit real author source/neighbor assets before an
-author-data run. Actual full-CNN gradients at the selected96-image specialized
+The Dataset requires genuine source images and native landmark sidecars; the
+unified preparation command binds them and records its train-only neighbors.
+Actual full-CNN gradients at the selected96-image specialized
 geometry,the fitted restore/evaluate workflow andthe complete449 CPU suite remain pending.
 The last complete386-test pass predates these additions. No full experiment,
 historical trained detector orGPU AMP reproduction is claimed.

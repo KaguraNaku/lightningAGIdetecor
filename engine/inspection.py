@@ -33,6 +33,19 @@ class ExperimentInspector:
                 masks = ForAdaDataset(SimpleNamespace(records=rows, header=header, root=root, manifest_path=path),
                                       require_localized=config["model"].get("training_profile") == "author_ffpp_8_32")
                 audits[name]["mask_supervision"] = masks.supervision_summary
+            if (header["split"] == "train" and config["model"]["factory"] == ModelRegistry.get("prodet").factory):
+                from types import SimpleNamespace
+                from detectors.prodet.dataset import ProDetDataset
+                from detectors.prodet.protocol import neighbor_identity
+                neighbors = config["model"].get("training_neighbors")
+                if isinstance(neighbors, str):
+                    neighbors = neighbor_identity(neighbors)
+                source = ProDetDataset(SimpleNamespace(root=root, header=header, records=rows,
+                    manifest_path=path), neighbors=neighbors)
+                audits[name]["prodet"] = {"data_profile": config["model"]["data_profile"],
+                    "quadruples": len(source), "model_views": len(source.records),
+                    "neighbors": source.plan.neighbor_identity,
+                    "landmarks": len(source.landmark_arrays)}
         return {"status": "validated", "config_sha256": sha256(Path(config_path)),
                 "model": ModelRegistry.method_for(config["model"]), "inputs": audits,
                 "GPU_forward_executed": False,
