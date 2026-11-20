@@ -3,11 +3,11 @@ from importlib.resources import files
 from pathlib import Path
 import json
 import torch
-from backbones.load_backbone import load_backbone
 from data.manifest import sha256
 from detectors._shared.checkpoint import load_strict
 from detectors._shared.task import ImageClassificationTask
 from detectors._shared.transforms import preprocessing_config
+from .clip import load_forada_clip
 from .data import ForAdaCollator, ForAdaDataset
 from .detector import ForAdaDetector
 from .trainer import ForAdaTrainer
@@ -58,7 +58,7 @@ class ForAdaTask(ImageClassificationTask):
         if config["embed_dim"] != 768 or config["image_resolution"] != 224 or config["vision_patch_size"] != 14 or config["vision_layers"] < 15:
             raise ValueError("ForAda requires CLIP 224/14 geometry, >=15 visual layers and 768-dimensional projection")
         def build(device="cpu"):
-            backbone = load_backbone("forada_clip", "full", model_type="forada_clip", **config)
+            backbone = load_forada_clip("forada_clip", **config)
             return ForAdaDetector(backbone, queries=construction["queries"], device=device)
         if weights is not None:
             with torch.device("meta"):

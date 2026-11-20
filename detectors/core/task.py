@@ -2,11 +2,11 @@
 
 import torch
 
-from backbones.load_backbone import load_backbone
 from detectors._shared.checkpoint import load_strict, read_weights
 from detectors._shared.provenance import reference_for
 from detectors._shared.task import ImageClassificationTask
 from detectors._shared.transforms import preprocessing_config
+from detectors.xception.backbone import Xception
 from detectors.xception.checkpoint import initialize_backbone
 
 from .detector import COREDetector
@@ -61,16 +61,10 @@ class CORETask(ImageClassificationTask):
         options = {k: v for k, v in construction.items() if k != "consistency_rate"}
         if weights is not None:
             with torch.device("meta"):
-                model = COREDetector(
-                    load_backbone(
-                        "xception", "vision", model_type="xception", **options
-                    )
-                )
+                model = COREDetector(Xception(**options))
             load_strict(model, weights, assign=True)
         else:
-            model = COREDetector(
-                load_backbone("xception", "vision", model_type="xception", **options)
-            )
+            model = COREDetector(Xception(**options))
             if settings.get("init_weights"):
                 origin["pretrained_backbone"] = initialize_backbone(
                     model.backbone, settings["init_weights"]

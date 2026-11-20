@@ -4,11 +4,11 @@ from copy import deepcopy
 
 import torch
 
-from backbones.load_backbone import load_backbone
 from detectors._shared.checkpoint import load_strict, read_weights
 from detectors._shared.provenance import reference_for
 from detectors._shared.task import ImageClassificationTask
 from detectors._shared.transforms import preprocessing_config
+from .backbone import UCFXception
 from .checkpoint import initialize_backbone
 from .dataset import UCFDataset, UCFCollator, DEFAULT_LABEL_MAP
 from .detector import UCFDetector
@@ -96,8 +96,8 @@ class UCFTask(ImageClassificationTask):
 
         def build():
             return UCFDetector(
-                load_backbone("ucf_xception", "vision", model_type="ucf_xception"),
-                load_backbone("ucf_xception", "vision", model_type="ucf_xception"),
+                UCFXception(),
+                UCFXception(),
                 specific_classes=count,
             )
 

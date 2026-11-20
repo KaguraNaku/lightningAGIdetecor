@@ -2,11 +2,11 @@
 
 import torch
 
-from backbones.load_backbone import load_backbone
 from detectors._shared.checkpoint import load_strict, read_weights
 from detectors._shared.provenance import reference_for
 from detectors._shared.task import ImageClassificationTask
 from detectors._shared.transforms import preprocessing_config
+from detectors.xception.backbone import Xception
 
 from .checkpoint import initialize_backbone, replace_stem
 from .detector import F3NetDetector
@@ -65,19 +65,12 @@ class F3NetTask(ImageClassificationTask):
             )
         if weights is not None:
             with torch.device("meta"):
-                backbone = load_backbone(
-                    "xception",
-                    "vision",
-                    model_type="xception",
-                    **construction["backbone"],
-                )
+                backbone = Xception(**construction["backbone"])
                 replace_stem(backbone)
                 model = F3NetDetector(backbone, construction["image_size"])
             load_strict(model, weights, assign=True)
         else:
-            backbone = load_backbone(
-                "xception", "vision", model_type="xception", **construction["backbone"]
-            )
+            backbone = Xception(**construction["backbone"])
             if settings.get("init_weights"):
                 origin["pretrained_backbone"] = initialize_backbone(
                     backbone, settings["init_weights"]

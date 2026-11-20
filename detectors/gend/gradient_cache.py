@@ -11,8 +11,8 @@ import numpy as np
 import torch
 from torch import nn
 
-from backbones.models.gend_clip import GenDCLIPEncoder
 from .detector import GenDDetector
+from .encoder import GenDCLIPEncoder
 
 
 @dataclass

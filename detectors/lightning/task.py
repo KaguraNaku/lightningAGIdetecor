@@ -12,6 +12,8 @@ import os
 import numpy as np
 import torch
 
+from models.clip import load_clip_vision
+
 from .model import (BRANCHES, LAYERS, AnalyticReadout, MappingAccumulator,
                      SpectralMapping, SufficientStatistics)
 
@@ -124,9 +126,9 @@ class LightningTask:
     def _ensure_backbone(self, runtime):
         self._validate_runtime(runtime)
         if self.backbone is None:
-            from transformers import CLIPVisionModel
-            spec = dict(self.encoder_spec);model_id = spec.pop('model_id')
-            self.backbone = CLIPEncoder(CLIPVisionModel.from_pretrained(model_id, **spec))
+            spec = dict(self.encoder_spec)
+            model_id = spec.pop('model_id')
+            self.backbone = CLIPEncoder(load_clip_vision(model_id, **spec))
         if self._device != runtime.device:
             self.backbone.to(runtime.device).eval(); self._device = runtime.device
             self.detector = None

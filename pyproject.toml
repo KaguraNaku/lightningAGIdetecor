@@ -19,7 +19,7 @@ dependencies = [
 engine = "engine.cli:main"
 
 [tool.setuptools.packages.find]
-include = ["backbones*", "detectors*", "data*", "configs*", "engine*"]
+include = ["backbones*", "models*", "detectors*", "data*", "configs*", "engine*"]
 
 [tool.setuptools.package-data]
 configs = ["*.yaml", "experiments/*.yaml", "migrations/*.json"]

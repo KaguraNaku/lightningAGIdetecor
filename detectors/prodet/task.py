@@ -6,12 +6,11 @@ import re
 
 import torch
 
-from backbones.load_backbone import load_backbone
 from data.loader import ImageCollator
 from detectors._shared.provenance import reference_for
 from detectors._shared.task import ImageClassificationTask
 from detectors._shared.transforms import ImageTransform, preprocessing_config
-from detectors._shared.initialization import EfficientNetB4Initializer
+from .backbone import EfficientNetB4
 from .checkpoint import (
     detector_weights,
     require_recipe,
@@ -21,6 +20,7 @@ from .checkpoint import (
 from .dataset import ProDetDataset, ProDetDataCollator
 from .detector import ProDetDetector
 from .images import ProDetImageDataset
+from .initialization import EfficientNetB4Initializer
 from .trainer import ProDetTrainer
 from .protocol import neighbor_identity
 
@@ -186,15 +186,7 @@ class ProDetTask(ImageClassificationTask):
         if weights is not None:
             model = restore_detector(weights, recipe=construction["recipe"])
         else:
-            backbone = load_backbone(
-                "efficientnetb4",
-                "vision",
-                model_type="efficientnetb4",
-                num_classes=2,
-                in_channels=3,
-                mode="original",
-                dropout=0.0,
-            )
+            backbone = EfficientNetB4(mode="original")
             if settings.get("init_weights") is not None:
                 origin["pretrained_backbone"] = EfficientNetB4Initializer.initialize(
                     backbone, settings["init_weights"]

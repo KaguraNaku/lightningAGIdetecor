@@ -1,4 +1,4 @@
-"""Lazy backbone registry for the nine supported detector tasks."""
+"""Lazy loaders for foundation models and detector backbones."""
 
 from collections.abc import MutableMapping
 from importlib import import_module
@@ -54,13 +54,17 @@ class BackboneRegistry(MutableMapping):
 
 
 LOADERS = BackboneRegistry({
-    ("xception", "vision"): ("backbones.models.xception", "load_xception"),
-    ("ucf_xception", "vision"): ("backbones.models.ucf_xception", "load_ucf_xception"),
-    ("efficientnetb4", "vision"): ("backbones.models.efficientnetb4", "load_efficientnetb4"),
-    ("gend_clip", "vision"): ("backbones.models.gend_clip", "load_gend_clip"),
-    ("forada_clip", "full"): ("backbones.models.forada_clip", "load_forada_clip"),
-    ("clip", "vision"): ("backbones.models.clip", "load_clip_vision"),
-    ("clip_vision_model", "vision"): ("backbones.models.clip", "load_clip_vision"),
+    ("xception", "vision"): ("detectors.xception.backbone", "load_xception"),
+    ("ucf_xception", "vision"): ("detectors.ucf.backbone", "load_ucf_xception"),
+    ("efficientnetb4", "vision"): ("detectors.prodet.backbone", "load_efficientnetb4"),
+    ("gend_clip", "vision"): ("detectors.gend.encoder", "load_gend_clip"),
+    ("forada_clip", "full"): ("detectors.forada.clip", "load_forada_clip"),
+    ("clip", "vision"): ("models.clip", "load_clip_vision"),
+    ("clip_vision_model", "vision"): ("models.clip", "load_clip_vision"),
+    ("dinov2", "vision"): ("models.dinov2", "load_dinov2_vision"),
+    ("siglip", "vision"): ("models.siglip", "load_siglip_vision"),
+    ("siglip_vision_model", "vision"): ("models.siglip", "load_siglip_vision"),
+    ("vit", "vision"): ("models.vit", "load_vit_vision"),
 })
 
 

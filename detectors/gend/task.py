@@ -6,13 +6,13 @@ import json
 import torch
 from huggingface_hub import hf_hub_download
 
-from backbones.load_backbone import load_backbone
 from detectors._shared.checkpoint import load_strict
 from detectors._shared.provenance import reference_for
 from detectors._shared.task import ImageClassificationTask
 from detectors._shared.transforms import preprocessing_config
 from .checkpoint import read_gend_weights
 from .detector import GenDDetector
+from .encoder import GenDCLIPEncoder
 
 
 MODEL_ID = "yermandy/GenD_CLIP_L_14"
@@ -136,10 +136,7 @@ class GenDTask(ImageClassificationTask):
             raise ValueError("Full GenD state requires its normalized head and author preprocessing")
 
         def build():
-            encoder = load_backbone(
-                "gend_clip",
-                "vision",
-                model_type="gend_clip",
+            encoder = GenDCLIPEncoder(
                 vision_config=construction["vision_config"],
                 attention_implementation=construction["attention_implementation"],
             )

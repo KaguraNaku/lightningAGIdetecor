@@ -4,8 +4,8 @@ from functools import lru_cache
 
 import torch
 
-from backbones.load_backbone import load_backbone
 from detectors._shared.checkpoint import load_strict, read_weights
+from .backbone import EfficientNetB4
 from .detector import ProDetDetector
 
 
@@ -46,15 +46,7 @@ def require_recipe(recipe):
 
 def _detector():
     return ProDetDetector(
-        load_backbone(
-            "efficientnetb4",
-            "vision",
-            model_type="efficientnetb4",
-            num_classes=2,
-            in_channels=3,
-            mode="original",
-            dropout=0.0,
-        ),
+        EfficientNetB4(mode="original"),
         feature_drift=True,
         feature_operation=True,
         op_start=0,

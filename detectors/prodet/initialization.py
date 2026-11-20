@@ -1,6 +1,6 @@
-"""Native backbone initialization policies shared by detector tasks."""
+"""ProDet initialization from the pretrained EfficientNet-B4 trunk."""
 
-from .checkpoint import read_weights
+from detectors._shared.checkpoint import read_weights
 
 
 class EfficientNetB4Initializer:

@@ -2,13 +2,13 @@
 
 import torch
 
-from backbones.load_backbone import load_backbone
 from detectors._shared.checkpoint import load_strict, read_weights
 from detectors._shared.detector import BackboneClassifier
 from detectors._shared.task import ImageClassificationTask
 from detectors._shared.transforms import preprocessing_config
 from detectors._shared.provenance import reference_for
 
+from .backbone import Xception
 from .checkpoint import initialize_backbone
 
 
@@ -50,18 +50,10 @@ class XceptionTask(ImageClassificationTask):
                 )
         if weights is not None:
             with torch.device("meta"):
-                model = BackboneClassifier(
-                    load_backbone(
-                        "xception", "vision", model_type="xception", **construction
-                    )
-                )
+                model = BackboneClassifier(Xception(**construction))
             load_strict(model, weights, assign=True)
         else:
-            model = BackboneClassifier(
-                load_backbone(
-                    "xception", "vision", model_type="xception", **construction
-                )
-            )
+            model = BackboneClassifier(Xception(**construction))
             if settings.get("init_weights"):
                 origin["pretrained_backbone"] = initialize_backbone(
                     model.backbone, settings["init_weights"]
