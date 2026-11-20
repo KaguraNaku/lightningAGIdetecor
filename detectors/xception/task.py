@@ -1,29 +1,19 @@
 """Xception source-validation experiment task."""
 
-import torch
-
-from detectors._shared.checkpoint import load_strict, read_weights
+from detectors._shared.checkpoint import restore_model
 from detectors._shared.detector import BackboneClassifier
 from detectors._shared.task import ImageClassificationTask
 from detectors._shared.transforms import preprocessing_config
 from detectors._shared.provenance import reference_for
 
 from .backbone import Xception
-from .checkpoint import initialize_backbone
+from .checkpoint import initialize_backbone, read_initial_detector_weights
 
 
 class XceptionTask(ImageClassificationTask):
     def __init__(self, settings, *, state=None):
-        origin = {**reference_for("xception"), "objective": "cross_entropy"}
-        weights = None
         if state is not None:
-            self.validate_state(state)
-            construction, preprocessing, origin = (
-                state["construction"],
-                state["preprocessing"],
-                state["origin"],
-            )
-            weights = state["state_dict"]
+            construction, preprocessing, origin, weights = self.unpack_state(state)
         else:
             construction = {
                 "num_classes": 2,
@@ -38,22 +28,16 @@ class XceptionTask(ImageClassificationTask):
                 augmentation=settings.get("augmentation", True),
                 data_aug={"rotate_prob": 0.0, **settings.get("data_aug", {})},
             )
-            if settings.get("initial_checkpoint"):
-                weights, receipt = read_weights(settings["initial_checkpoint"])
-                origin.update(receipt)
-            elif (
-                not settings.get("init_weights")
-                and settings.get("initialization") != "random"
-            ):
-                raise ValueError(
-                    "Supply Xception init_weights or explicitly select initialization: random"
-                )
+            weights, receipt = read_initial_detector_weights(settings, detector="Xception")
+            origin = {**reference_for("xception"), "objective": "cross_entropy", **receipt}
+
+        def build():
+            return BackboneClassifier(Xception(**construction))
+
         if weights is not None:
-            with torch.device("meta"):
-                model = BackboneClassifier(Xception(**construction))
-            load_strict(model, weights, assign=True)
+            model = restore_model(build, weights)
         else:
-            model = BackboneClassifier(Xception(**construction))
+            model = build()
             if settings.get("init_weights"):
                 origin["pretrained_backbone"] = initialize_backbone(
                     model.backbone, settings["init_weights"]

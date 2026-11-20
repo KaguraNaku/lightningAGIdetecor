@@ -4,7 +4,7 @@ from functools import lru_cache
 
 import torch
 
-from detectors._shared.checkpoint import load_strict, read_weights
+from detectors._shared.checkpoint import read_weights, restore_model
 from .backbone import EfficientNetB4
 from .detector import ProDetDetector
 
@@ -119,9 +119,7 @@ def restore_detector(weights, *, recipe):
             key: value.detach().clone(memory_format=torch.contiguous_format)
             for key, value in weights.items()
         }
-    with torch.device("meta"):
-        model = _detector()
-    load_strict(model, independent, assign=True)
+    model = restore_model(_detector, independent)
     if len(list(model.parameters())) != 488 or any(
         not p.requires_grad for p in model.parameters()
     ):

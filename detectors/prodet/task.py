@@ -89,118 +89,109 @@ class ProDetTask(ImageClassificationTask):
     prediction_unit = "image"
 
     def __init__(self, settings, *, state=None):
-        settings = dict(settings)
-        if isinstance(settings.get("training_neighbors"), str):
-            if state is None:
-                settings["training_neighbors"] = neighbor_identity(settings["training_neighbors"])
-            else:
-                self.validate_state(state)
-                saved_neighbors = state["construction"].get("training_neighbors")
-                if (not isinstance(saved_neighbors, dict)
-                        or str(Path(settings["training_neighbors"]).expanduser().resolve()) != saved_neighbors.get("path")):
-                    raise ValueError("ProDet requested neighbor path differs from saved Task")
-                # Restoring a complete model must not open training sidecars.
-                settings["training_neighbors"] = deepcopy(saved_neighbors)
         recipe = selected_recipe()
-        require_recipe(recipe)
-        allowed = set(recipe) | {
-            "data_profile",
-            "training_neighbors",
-            "initial_checkpoint",
-            "init_weights",
-            "initialization",
-            "score_type",
-        }
-        if (
-            set(settings) - allowed
-            or settings.get("score_type", "probability") != "probability"
-        ):
-            raise ValueError("Unknown ProDet settings or non-native score type")
-        for key, value in recipe.items():
-            if key in settings and not same_metadata(settings[key], value):
-                raise ValueError(
-                    f"ProDet requested non-native construction setting:{key}"
-                )
-        weights = None
-        if state is not None:
-            self.validate_state(state)
-            construction, preprocessing, origin = (
-                deepcopy(state[key])
-                for key in ("construction", "preprocessing", "origin")
-            )
-            weights = state["state_dict"]
-            self.validate_metadata(construction, preprocessing, origin)
-            for key in ("data_profile", "training_neighbors"):
-                if key in settings and not same_metadata(
-                    settings[key], construction[key]
-                ):
-                    raise ValueError(
-                        "ProDet requested data bindings differ from saved Task"
-                    )
+        self._validate_model_settings(settings, recipe)
+        if state is None:
+            construction, preprocessing, origin = self._training_config(settings, recipe)
+            model, initialized = self._initialize_model(settings, recipe, origin)
         else:
-            profile = settings.get("data_profile")
-            preprocessing = preprocessing_for(profile)
-            construction = {
-                "recipe": recipe,
-                "prediction_unit": "image",
-                "data_profile": profile,
-                "training_neighbors": deepcopy(settings.get("training_neighbors")),
-            }
-            origin = {
-                **reference_for("prodet"),
-                "source_only_selection": True,
-                "exact_optimizer_rng_resume_supported": False,
-                "full_experiment_reproduction": False,
-                "data_recipe_note": "specialized_quadruples executes the author SBIPlusV2 four-domain recipe;native_entrypoint is historical binary compatibility",
-            }
-            if profile == "specialized_quadruples":
-                origin["author_method"] = {
-                    "repository": "https://github.com/beautyremain/ProDet",
-                    "revision": "050856249569f8ae6de4e847265f9d6e2139b3b2",
-                    "data": "SBIPlusV2 real/blendfake/bifake/deepfake;24quadruples->96views",
-                    "controls": "strict train8/test32;source-only validation;train-only nearest pool",
-                    "identical_paper_run_claimed": False,
-                }
-            self.validate_metadata(construction, preprocessing, origin)
-            initial = settings.get("initial_checkpoint")
-            if initial is not None:
-                if (
-                    settings.get("init_weights") is not None
-                    or settings.get("initialization") is not None
-                ):
-                    raise ValueError("Select one ProDet initialization source")
-                weights, receipt = detector_weights(initial, recipe=recipe)
-                origin.update(receipt)
-            elif (
-                settings.get("init_weights") is None
-                and settings.get("initialization") != "random"
-            ):
-                raise ValueError(
-                    "ProDet requires full initial_checkpoint,ImageNet init_weights,or explicit initialization=random"
-                )
-            elif (
-                settings.get("init_weights") is not None
-                and settings.get("initialization") is not None
-            ):
-                raise ValueError("Select one ProDet initialization source")
-        if weights is not None:
+            construction, preprocessing, origin, weights = self._restore_config(settings, state)
             model = restore_detector(weights, recipe=construction["recipe"])
-        else:
-            backbone = EfficientNetB4(mode="original")
-            if settings.get("init_weights") is not None:
-                origin["pretrained_backbone"] = EfficientNetB4Initializer.initialize(
-                    backbone, settings["init_weights"]
-                )
-            else:
-                origin["initialization"] = "explicit_random;not_training"
-            model = ProDetDetector(backbone)
+            initialized = True
+
         super().__init__(
             model,
             construction=construction,
             preprocessing=preprocessing,
             origin=origin,
-            ready=weights is not None,
+            ready=initialized,
         )
+
+    @staticmethod
+    def _validate_model_settings(settings, recipe):
+        options = {
+            "data_profile", "training_neighbors", "initial_checkpoint",
+            "init_weights", "initialization", "score_type",
+        }
+        if extra := set(settings) - recipe.keys() - options:
+            raise ValueError(f"Unsupported ProDet settings: {', '.join(sorted(extra))}")
+        if settings.get("score_type", "probability") != "probability":
+            raise ValueError("ProDet outputs a fake-class probability")
+        for key, value in recipe.items():
+            if key in settings and not same_metadata(settings[key], value):
+                raise ValueError(f"ProDet requested non-native construction setting: {key}")
+
+    def _training_config(self, settings, recipe):
+        profile = settings.get("data_profile")
+        preprocessing = preprocessing_for(profile)
+        neighbors = settings.get("training_neighbors")
+        if isinstance(neighbors, str):
+            neighbors = neighbor_identity(neighbors)
+        construction = {
+            "recipe": recipe,
+            "prediction_unit": "image",
+            "data_profile": profile,
+            "training_neighbors": deepcopy(neighbors),
+        }
+        origin = {
+            **reference_for("prodet"),
+            "source_only_selection": True,
+            "exact_optimizer_rng_resume_supported": False,
+            "full_experiment_reproduction": False,
+            "data_recipe_note": "specialized_quadruples executes the author SBIPlusV2 four-domain recipe;native_entrypoint is historical binary compatibility",
+        }
+        if profile == "specialized_quadruples":
+            origin["author_method"] = {
+                "repository": "https://github.com/beautyremain/ProDet",
+                "revision": "050856249569f8ae6de4e847265f9d6e2139b3b2",
+                "data": "SBIPlusV2 real/blendfake/bifake/deepfake;24quadruples->96views",
+                "controls": "strict train8/test32;source-only validation;train-only nearest pool",
+                "identical_paper_run_claimed": False,
+            }
+        self.validate_metadata(construction, preprocessing, origin)
+        return construction, preprocessing, origin
+
+    def _restore_config(self, settings, state):
+        construction, preprocessing, origin, weights = self.unpack_state(state)
+        self.validate_metadata(construction, preprocessing, origin)
+        if "data_profile" in settings and not same_metadata(
+            settings["data_profile"], construction["data_profile"]
+        ):
+            raise ValueError("ProDet requested data bindings differ from saved Task")
+        if "training_neighbors" in settings:
+            requested = settings["training_neighbors"]
+            saved = construction["training_neighbors"]
+            if isinstance(requested, str):
+                # Restoring a model only needs the saved sidecar path.
+                path = str(Path(requested).expanduser().resolve())
+                if not isinstance(saved, dict) or path != saved["path"]:
+                    raise ValueError("ProDet requested neighbor path differs from saved Task")
+            elif not same_metadata(requested, saved):
+                raise ValueError("ProDet requested data bindings differ from saved Task")
+        return deepcopy(construction), deepcopy(preprocessing), deepcopy(origin), weights
+
+    @staticmethod
+    def _initialize_model(settings, recipe, origin):
+        checkpoint = settings.get("initial_checkpoint")
+        imagenet = settings.get("init_weights")
+        initialization = settings.get("initialization")
+        if sum(value is not None for value in (checkpoint, imagenet, initialization)) > 1:
+            raise ValueError("Select one ProDet initialization source")
+        if checkpoint is not None:
+            weights, receipt = detector_weights(checkpoint, recipe=recipe)
+            origin.update(receipt)
+            return restore_detector(weights, recipe=recipe), True
+        if imagenet is None and initialization != "random":
+            raise ValueError(
+                "ProDet requires initial_checkpoint, ImageNet init_weights, or initialization: random"
+            )
+
+        backbone = EfficientNetB4(mode="original")
+        if imagenet is not None:
+            origin["pretrained_backbone"] = EfficientNetB4Initializer.initialize(backbone, imagenet)
+        else:
+            origin["initialization"] = "explicit_random;not_training"
+        return ProDetDetector(backbone), False
 
     @staticmethod
     def validate_state(state):
@@ -258,33 +249,21 @@ class ProDetTask(ImageClassificationTask):
             )
         return ProDetImageDataset(dataset, stage=stage)
 
-    def get_collate_fn(self, stage):
-        if stage not in {"train", "validation", "evaluation"}:
-            raise ValueError("Unknown ProDet preprocessing stage")
-        if (
-            stage == "train"
-            and self.construction["data_profile"] == "specialized_quadruples"
-        ):
+    def build_collator(self, *, training):
+        if training and self.construction["data_profile"] == "specialized_quadruples":
             return ProDetDataCollator()
-        return ImageCollator(
-            transform=ImageTransform(self.preprocessing["generic"], stage == "train")
-        )
+        return ImageCollator(transform=ImageTransform(self.preprocessing["generic"], training))
 
-    def fit(self, loader, *, validation_loader=None, runtime, settings, output_dir):
-        self._ready = False
-        result = ProDetTrainer(
+    def build_trainer(self):
+        return ProDetTrainer(
             self.model,
             data_profile=self.construction["data_profile"],
             origin=self.origin,
-        ).fit(
-            loader,
-            validation_loader=validation_loader,
-            runtime=runtime,
-            settings=settings,
-            output_dir=output_dir,
         )
-        self._ready = True
-        return result
+
+    def fit(self, loader, **kwargs):
+        self._ready = False
+        return super().fit(loader, **kwargs)
 
     @torch.inference_mode()
     def predict(self, images, *, runtime):
@@ -306,12 +285,8 @@ class ProDetTask(ImageClassificationTask):
             raise ValueError("ProDet requires one finite fake probability per image")
         return scores
 
-    def state_dict(self):
+    def checkpoint_metadata(self):
         self.validate_metadata(self.construction, self.preprocessing, self.origin)
-        state = super().state_dict()
         return {
-            **state,
-            "construction": deepcopy(self.construction),
-            "preprocessing": deepcopy(self.preprocessing),
-            "origin": deepcopy(self.origin),
+            key: deepcopy(value) for key, value in super().checkpoint_metadata().items()
         }

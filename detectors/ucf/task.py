@@ -5,10 +5,11 @@ from copy import deepcopy
 import torch
 from torch import nn
 
-from detectors._shared.checkpoint import load_strict, read_weights
+from detectors._shared.checkpoint import restore_model
 from detectors._shared.provenance import reference_for
 from detectors._shared.task import ImageClassificationTask
 from detectors._shared.transforms import preprocessing_config
+from detectors.xception.checkpoint import read_initial_detector_weights
 from .backbone import UCFXception
 from .checkpoint import initialize_backbone
 from .dataset import UCFDataset, UCFCollator, DEFAULT_LABEL_MAP
@@ -50,55 +51,64 @@ def expand_progan_head(task):
 
 
 class UCFTask(ImageClassificationTask):
+    trainer_class = UCFTrainer
+
     def __init__(self, settings, *, state=None):
-        weights = None
-        expected = preprocessing_config(256, (0.5,) * 3, (0.5,) * 3)
-        if state is not None:
-            self.validate_state(state)
-            construction, preprocessing, origin, weights = (
-                state["construction"],
-                state["preprocessing"],
-                state["origin"],
-                state["state_dict"],
-            )
+        expected_preprocessing = preprocessing_config(256, (0.5,) * 3, (0.5,) * 3)
+        if state is None:
+            construction, origin = self._training_config(settings)
+            preprocessing = expected_preprocessing
+            weights, receipt = read_initial_detector_weights(settings, detector="UCF")
+            origin.update(receipt)
         else:
-            construction = {
-                "recipe": deepcopy(RECIPE),
-                "specific_classes": settings.get("specific_classes", 5),
-                "specific_label_map": deepcopy(
-                    settings.get("specific_label_map", DEFAULT_LABEL_MAP)
-                ),
-            }
-            preprocessing = expected
-            origin = {
-                **reference_for("ucf"),
-                "selection_policy": "Remake explicit source manifests and validation; not native full experiment",
-                "label_binding": "Explicit metadata overrides declared category map; no automatic alias correction or type renumbering",
-                "evaluation_observers": "Native label/probability counters optional in direct model API; unified evaluator owns metrics",
-                "exact_optimizer_rng_resume_supported": False,
-            }
-            if settings.get("initial_checkpoint"):
-                weights, receipt = read_weights(settings["initial_checkpoint"])
-                origin.update(receipt)
-            elif (
-                not settings.get("init_weights")
-                and settings.get("initialization") != "random"
-            ):
-                raise ValueError(
-                    "UCF requires original Xception init_weights or explicit initialization: random"
-                )
+            construction, preprocessing, origin, weights = self.unpack_state(state)
+
+        self._validate_recipe(construction, preprocessing, expected_preprocessing)
+
+        def build():
+            return UCFDetector(
+                UCFXception(), UCFXception(), specific_classes=construction["specific_classes"]
+            )
+
+        if weights is not None:
+            model = restore_model(build, weights)
+        else:
+            model = build()
+            self._initialize_encoders(model, settings.get("init_weights"), origin)
+        super().__init__(
+            model,
+            construction=construction,
+            preprocessing=preprocessing,
+            origin=origin,
+            ready=weights is not None,
+        )
+
+    @staticmethod
+    def _training_config(settings):
+        construction = {
+            "recipe": deepcopy(RECIPE),
+            "specific_classes": settings.get("specific_classes", 5),
+            "specific_label_map": deepcopy(settings.get("specific_label_map", DEFAULT_LABEL_MAP)),
+        }
+        origin = {
+            **reference_for("ucf"),
+            "selection_policy": "Remake explicit source manifests and validation; not native full experiment",
+            "label_binding": "Explicit metadata overrides declared category map; no automatic alias correction or type renumbering",
+            "evaluation_observers": "Native label/probability counters optional in direct model API; unified evaluator owns metrics",
+            "exact_optimizer_rng_resume_supported": False,
+        }
+        return construction, origin
+
+    @staticmethod
+    def _validate_recipe(construction, preprocessing, expected_preprocessing):
         if (
             set(construction) != {"recipe", "specific_classes", "specific_label_map"}
             or construction["recipe"] != RECIPE
-            or preprocessing != expected
+            or preprocessing != expected_preprocessing
         ):
-            raise ValueError(
-                "UCF requires complete native model, loss and pair-transport recipe"
-            )
-        count, label_map = (
-            construction["specific_classes"],
-            construction["specific_label_map"],
-        )
+            raise ValueError("UCF requires complete native model, loss and pair-transport recipe")
+        count = construction["specific_classes"]
+        label_map = construction["specific_label_map"]
         if (
             type(count) is not int
             or count < 2
@@ -110,40 +120,17 @@ class UCFTask(ImageClassificationTask):
                 for key, value in label_map.items()
             )
         ):
-            raise ValueError(
-                "UCF requires valid specific classes and an explicit source label map"
-            )
+            raise ValueError("UCF requires valid specific classes and an explicit source label map")
 
-        def build():
-            return UCFDetector(
-                UCFXception(),
-                UCFXception(),
-                specific_classes=count,
-            )
-
-        if weights is not None:
-            with torch.device("meta"):
-                model = build()
-            load_strict(model, weights, assign=True)
+    @staticmethod
+    def _initialize_encoders(model, init_weights, origin):
+        if init_weights:
+            origin["initialization"] = {
+                "forgery": initialize_backbone(model.encoder_f, init_weights),
+                "content": initialize_backbone(model.encoder_c, init_weights),
+            }
         else:
-            model = build()
-            if settings.get("init_weights"):
-                origin["initialization"] = {
-                    name: initialize_backbone(encoder, settings["init_weights"])
-                    for name, encoder in (
-                        ("forgery", model.encoder_f),
-                        ("content", model.encoder_c),
-                    )
-                }
-            else:
-                origin["initialization"] = "explicit_constructed_random"
-        super().__init__(
-            model,
-            construction=construction,
-            preprocessing=preprocessing,
-            origin=origin,
-            ready=weights is not None,
-        )
+            origin["initialization"] = "explicit_constructed_random"
 
     def prepare_dataset(self, dataset, *, stage):
         return (
@@ -157,16 +144,5 @@ class UCFTask(ImageClassificationTask):
             else dataset
         )
 
-    def get_collate_fn(self, stage):
-        return UCFCollator() if stage == "train" else super().get_collate_fn(stage)
-
-    def fit(self, loader, *, validation_loader=None, runtime, settings, output_dir):
-        report = UCFTrainer(self.model, origin=self.origin).fit(
-            loader,
-            validation_loader=validation_loader,
-            runtime=runtime,
-            settings=settings,
-            output_dir=output_dir,
-        )
-        self._ready = True
-        return report
+    def build_collator(self, *, training):
+        return UCFCollator() if training else super().build_collator(training=training)

@@ -3,6 +3,17 @@
 from detectors._shared.checkpoint import read_weights
 
 
+def read_initial_detector_weights(settings, *, detector):
+    """Read a full detector, or validate the choice of backbone initialization."""
+    if checkpoint := settings.get("initial_checkpoint"):
+        return read_weights(checkpoint)
+    if not settings.get("init_weights") and settings.get("initialization") != "random":
+        raise ValueError(
+            f"Supply ImageNet Xception init_weights for {detector} or explicitly select initialization: random"
+        )
+    return None, {}
+
+
 def initialize_backbone(backbone, path):
     weights, receipt = read_weights(path)
     adapted = {}

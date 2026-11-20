@@ -54,6 +54,13 @@ def load_strict(model, weights, *, assign=False):
     return model
 
 
+def restore_model(build, weights):
+    """Construct the model on meta and materialize it from its saved tensors."""
+    with torch.device("meta"):
+        model = build()
+    return load_strict(model, weights, assign=True)
+
+
 def convert_checkpoint(settings, source, destination, *, threshold=0.5):
     """Convert via the selected task's strict importer into the engine envelope."""
     from engine.runtime import atomic_save, create_task

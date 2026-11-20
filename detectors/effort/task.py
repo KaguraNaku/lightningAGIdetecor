@@ -5,8 +5,11 @@ from transformers import AutoConfig, CLIPVisionConfig, CLIPVisionModel
 
 from backbones.load_backbone import load_backbone
 from data.loader import ImageCollator
+from detectors._shared.checkpoint import restore_model
+from detectors._shared.task import ImageClassificationTask
 
 from .detector import EffortDetector
+from .trainer import EffortTrainer
 from .transforms import make_transform, preprocessing_config
 
 AUTHOR_COMMIT = "96f5dea2b534d400cfd7003f053c7e93c8e16461"
@@ -19,86 +22,75 @@ BACKBONE_ID = "openai/clip-vit-large-patch14"
 BACKBONE_REVISION = "32bd64288804d66eefd0ccbe215aa642df71cc41"
 
 
-class EffortTask:
+class EffortTask(ImageClassificationTask):
+    trainer_class = EffortTrainer
+
     def __init__(self, settings, *, state=None):
-        self.settings = dict(settings)
-        self.origin = {
-            "author_commit": AUTHOR_COMMIT, "author_sha256": dict(AUTHOR_SHA256),
-            "objective": "cross_entropy",
-        }
         self.attention = settings.get("attention_implementation", "sdpa")
         if self.attention not in ("sdpa", "eager"):
             raise ValueError("Effort attention_implementation must be sdpa or eager")
-        legacy = settings.get("initial_checkpoint") if state is None else None
-        weights = None
-        if state is not None:
-            if state.get("version") != 1:
-                raise ValueError("Unsupported Effort task checkpoint version")
-            config = CLIPVisionConfig.from_dict(state["vision_config"])
+
+        if state is None:
+            model, config, origin, imported = self._new_model(settings)
+            preprocessing = preprocessing_config(config.image_size)
+        else:
+            self.validate_state(state)
             self.attention = state["attention_implementation"]
-            rank = state["retained_rank"]
-            self.preprocessing = state["preprocessing"]
-            self.origin = state["origin"]
-            weights = state["state_dict"]
-        else:
-            model_id = settings.get("backbone_id", BACKBONE_ID)
-            options = {"local_files_only": settings.get("local_files_only", False)}
-            revision = settings.get("revision")
-            if revision is None and model_id == BACKBONE_ID:
-                revision = BACKBONE_REVISION
-            if revision is not None:
-                options["revision"] = revision
-            if legacy:
-                # Import requires only geometry; never initialize pretrained weights/SVD.
-                config = AutoConfig.from_pretrained(model_id, **options)
-                config = getattr(config, "vision_config", config)
-                from .checkpoint import read_legacy
+            config = CLIPVisionConfig.from_dict(state["vision_config"])
+            model = self._restore_model(config, state["retained_rank"], state["state_dict"])
+            preprocessing = state["preprocessing"]
+            origin = state["origin"]
+            imported = True
 
-                weights, receipt = read_legacy(legacy)
-                self.origin.update(receipt)
-            else:
-                vision = load_backbone(
-                    model_id, "vision", attn_implementation=self.attention, **options
-                )
-                config = vision.config
+        super().__init__(model, preprocessing=preprocessing, origin=origin, ready=imported)
+        self._device = None
+
+    def _new_model(self, settings):
+        origin = {
+            "author_commit": AUTHOR_COMMIT,
+            "author_sha256": dict(AUTHOR_SHA256),
+            "objective": "cross_entropy",
+        }
+        model_id = settings.get("backbone_id", BACKBONE_ID)
+        options = {"local_files_only": settings.get("local_files_only", False)}
+        revision = settings.get("revision")
+        if revision is None and model_id == BACKBONE_ID:
+            revision = BACKBONE_REVISION
+        if revision is not None:
+            options["revision"] = revision
+
+        if checkpoint := settings.get("initial_checkpoint"):
+            from .checkpoint import read_legacy
+
+            # Imported weights already contain the learned decomposition.
+            config = AutoConfig.from_pretrained(model_id, **options)
+            config = getattr(config, "vision_config", config)
+            weights, receipt = read_legacy(checkpoint)
+            origin.update(receipt)
             rank = settings.get("retained_rank", config.hidden_size - 1)
-            self.preprocessing = preprocessing_config(config.image_size)
+            return self._restore_model(config, rank, weights), config, origin, True
+
+        vision = load_backbone(model_id, "vision", attn_implementation=self.attention, **options)
+        config = vision.config
         self.vision_config = config.to_dict()
-        if weights is not None:
-            config._attn_implementation = self.attention
-            with torch.device("meta"):
-                self.model = EffortDetector(
-                    CLIPVisionModel(config), retained_rank=rank, initialize=False
-                )
-            self.model.load_state_dict(weights, strict=True, assign=True)
-            # HF keeps position_ids as a nonpersistent buffer, absent from weights.
-            embeddings = self.model.backbone.embeddings
-            embeddings.position_ids = torch.arange(
-                embeddings.position_embedding.num_embeddings, device="cpu"
-            ).expand((1, -1))
-        else:
-            self.model = EffortDetector(vision, retained_rank=rank)
-        self.collate_fn = ImageCollator(transform=make_transform(self.preprocessing))
-        self._ready = weights is not None
+        rank = settings.get("retained_rank", config.hidden_size - 1)
+        return EffortDetector(vision, retained_rank=rank), config, origin, False
+
+    def _restore_model(self, config, rank, weights):
+        self.vision_config = config.to_dict()
+        config._attn_implementation = self.attention
+
+        def build():
+            return EffortDetector(CLIPVisionModel(config), retained_rank=rank, initialize=False)
+
+        return restore_model(build, weights)
+
+    def build_collator(self, *, training):
+        return ImageCollator(transform=make_transform(self.preprocessing, training=training))
+
+    def fit(self, loader, **kwargs):
         self._device = None
-
-    def get_collate_fn(self, stage):
-        if stage not in ("train", "validation", "evaluation"):
-            raise ValueError(f"Unknown Effort preprocessing stage: {stage}")
-        if stage == "train":
-            return ImageCollator(transform=make_transform(self.preprocessing, training=True))
-        return self.collate_fn
-
-    def fit(self, loader, *, validation_loader=None, runtime, settings, output_dir):
-        from .trainer import EffortTrainer
-
-        self._device = None
-        report = EffortTrainer(self.model, origin=self.origin).fit(
-            loader, validation_loader=validation_loader,
-            runtime=runtime, settings=settings, output_dir=output_dir,
-        )
-        self._ready = True
-        return report
+        return super().fit(loader, **kwargs)
 
     @torch.inference_mode()
     def predict(self, images, *, runtime):
@@ -111,15 +103,11 @@ class EffortTask:
         with runtime.autocast():
             return self.model(images.to(runtime.device, non_blocking=True)).softmax(dim=1)[:, 1]
 
-    def state_dict(self):
-        if not self._ready:
-            raise ValueError("Cannot save an unfitted Effort model")
+    def checkpoint_metadata(self):
         return {
-            "version": 1,
             "vision_config": self.vision_config,
             "attention_implementation": self.attention,
             "retained_rank": self.model.retained_rank,
             "preprocessing": self.preprocessing,
             "origin": self.origin,
-            "state_dict": {k: v.detach().cpu() for k, v in self.model.state_dict().items()},
         }

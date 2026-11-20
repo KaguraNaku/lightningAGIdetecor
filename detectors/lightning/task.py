@@ -29,36 +29,58 @@ class LightningTask:
     def __init__(self, settings, *, state=None):
         self.chain_id = settings.get("chain_id")
         self.stage_index = settings.get("stage_index", 0)
-        self.backbone = self.detector = self.processor = None
-        self._processor_state = None
-        self._device = None
         self.model = None
         self.training_ids = set()
 
-        self.encoder_spec = {"model_id": CLIP_MODEL_ID}
-        if "local_files_only" in settings:
-            self.encoder_spec["local_files_only"] = settings["local_files_only"]
-        if settings.get("cache_dir"):
-            self.encoder_spec["cache_dir"] = str(Path(settings["cache_dir"]).expanduser())
-        self.ridge_lambda = settings.get("ridge_lambda", DEFAULT_RIDGE_LAMBDA)
+        # Build the runtime components on first use.
+        self.backbone = self.detector = self.processor = None
+        self._processor_state = None
+        self._device = None
+
         if state is not None:
             self._restore_state(state)
-        elif settings.get("parent_checkpoint"):
-            self._load_parent(settings)
+        elif parent := settings.get("parent_checkpoint"):
+            self._continue_fit(parent, settings)
         else:
-            if self.chain_id is not None or self.stage_index != 0:
-                raise ValueError("Set a parent checkpoint for a continuation stage")
-            if "mapping_path" in settings:
-                self.model = AnalyticReadout.from_mapping_file(self._asset(settings["mapping_path"]))
+            self._start_fit(settings)
 
-        if self.encoder_spec["model_id"] != CLIP_MODEL_ID:
-            raise ValueError("Lightning uses the fixed CLIP-L/14 encoder")
-        value = self.ridge_lambda
+    def _start_fit(self, settings):
+        if self.chain_id is not None or self.stage_index != 0:
+            raise ValueError("Set a parent checkpoint for a continuation stage")
+        self.encoder_spec = {"model_id": CLIP_MODEL_ID, **self._encoder_settings(settings)}
+        self.ridge_lambda = self._positive_ridge(settings.get("ridge_lambda", DEFAULT_RIDGE_LAMBDA))
+        # Without a supplied mapping, fit() learns it from the source data.
+        if "mapping_path" in settings:
+            self.model = AnalyticReadout.from_mapping_file(self._asset(settings["mapping_path"]))
+            self._validate_mapping(self.model)
+
+    def _continue_fit(self, reference, settings):
+        if "mapping_path" in settings:
+            raise ValueError("Lightning continuation uses the mapping from its parent checkpoint")
+        parent = self._load_parent(reference)
+        if settings.get("ridge_lambda", parent.ridge_lambda) != parent.ridge_lambda:
+            raise ValueError("Continuation ridge_lambda must match the parent")
+        self.ridge_lambda = parent.ridge_lambda
+        self.model = parent.model
+        self.training_ids = set(parent.training_ids)
+        self.encoder_spec = {**parent.encoder_spec, **self._encoder_settings(settings)}
+        self._processor_state = parent._processor_state
+
+    @staticmethod
+    def _encoder_settings(settings):
+        options = {}
+        if "local_files_only" in settings:
+            options["local_files_only"] = settings["local_files_only"]
+        if cache_dir := settings.get("cache_dir"):
+            options["cache_dir"] = str(Path(cache_dir).expanduser())
+        return options
+
+    @staticmethod
+    def _positive_ridge(value):
         if (isinstance(value, bool) or not isinstance(value, (int, float))
                 or not math.isfinite(value) or value <= 0):
             raise ValueError("Lightning requires a positive ridge_lambda")
-        if self.model is not None:
-            self._validate_mapping(self.model)
+        return value
 
     @property
     def regularization(self):
@@ -76,8 +98,10 @@ class LightningTask:
         regularization = state.get("regularization", {})
         if regularization.get("kind") != "uniform_mean_loss":
             raise ValueError("Lightning checkpoints must declare uniform_mean_loss")
-        self.ridge_lambda = regularization.get("ridge_lambda")
+        self.ridge_lambda = self._positive_ridge(regularization.get("ridge_lambda"))
         self.encoder_spec = state["encoder"]
+        if self.encoder_spec["model_id"] != CLIP_MODEL_ID:
+            raise ValueError("Lightning uses the fixed CLIP-L/14 encoder")
         self._processor_state = state["processor"]
         ids = state["training_ids"]
         self.training_ids = set(ids)
@@ -99,14 +123,14 @@ class LightningTask:
                 or not all(np.isfinite(a).all() for a in coefficients.values())):
             raise ValueError("Invalid Lightning coefficients")
         self.model = AnalyticReadout(mappings, statistics, coefficients)
+        self._validate_mapping(self.model)
 
-    def _load_parent(self, settings):
-        if ("mapping_path" in settings or not isinstance(self.chain_id, str) or not self.chain_id.strip()
+    def _load_parent(self, reference):
+        if (not isinstance(self.chain_id, str) or not self.chain_id.strip()
                 or type(self.stage_index) is not int or self.stage_index < 1):
             raise ValueError("Lightning continuation requires chain_id and positive stage_index")
         from engine.fit import restore
 
-        reference = settings["parent_checkpoint"]
         parent, saved = restore(self._asset(reference))
         if not isinstance(parent, type(self)):
             raise ValueError("Lightning continuation requires a fitted Lightning parent")
@@ -120,13 +144,7 @@ class LightningTask:
             sources = {item["dataset"] for item in inputs.values() if item.get("split") == "train"}
             if sources != {dataset}:
                 raise ValueError(f"Expected a Lightning parent trained on {dataset}")
-        if "ridge_lambda" in settings and self.ridge_lambda != parent.ridge_lambda:
-            raise ValueError("Continuation ridge_lambda must match the parent")
-        self.model = parent.model
-        self.ridge_lambda = parent.ridge_lambda
-        self.training_ids = set(parent.training_ids)
-        self.encoder_spec = {**parent.encoder_spec, **self.encoder_spec}
-        self._processor_state = parent._processor_state
+        return parent
 
     @staticmethod
     def _asset(value):

@@ -1,12 +1,11 @@
 """F3Net FAD composition with preserved constructor RNG and standalone state."""
 
-import torch
-
-from detectors._shared.checkpoint import load_strict, read_weights
+from detectors._shared.checkpoint import restore_model
 from detectors._shared.provenance import reference_for
 from detectors._shared.task import ImageClassificationTask
 from detectors._shared.transforms import preprocessing_config
 from detectors.xception.backbone import Xception
+from detectors.xception.checkpoint import read_initial_detector_weights
 
 from .checkpoint import initialize_backbone, replace_stem
 from .detector import F3NetDetector
@@ -14,15 +13,8 @@ from .detector import F3NetDetector
 
 class F3NetTask(ImageClassificationTask):
     def __init__(self, settings, *, state=None):
-        weights = None
         if state is not None:
-            self.validate_state(state)
-            construction, preprocessing, origin, weights = (
-                state["construction"],
-                state["preprocessing"],
-                state["origin"],
-                state["state_dict"],
-            )
+            construction, preprocessing, origin, weights = self.unpack_state(state)
         else:
             construction = {
                 "backbone": {
@@ -41,21 +33,13 @@ class F3NetTask(ImageClassificationTask):
                 augmentation=settings.get("augmentation", False),
                 data_aug=settings.get("data_aug"),
             )
+            weights, receipt = read_initial_detector_weights(settings, detector="F3Net")
             origin = {
                 **reference_for("f3net"),
                 "objective": "cross_entropy",
                 "recipe": "local_FAD_only_full_Xception",
+                **receipt,
             }
-            if settings.get("initial_checkpoint"):
-                weights, receipt = read_weights(settings["initial_checkpoint"])
-                origin.update(receipt)
-            elif (
-                not settings.get("init_weights")
-                and settings.get("initialization") != "random"
-            ):
-                raise ValueError(
-                    "Supply F3Net init_weights or explicitly select initialization: random"
-                )
         if (
             construction.get("stem_channels") != 12
             or construction["backbone"]["in_channels"] != 3
@@ -63,22 +47,22 @@ class F3NetTask(ImageClassificationTask):
             raise ValueError(
                 "F3Net requires RGB backbone construction before twelve-channel stem replacement"
             )
-        if weights is not None:
-            with torch.device("meta"):
-                backbone = Xception(**construction["backbone"])
-                replace_stem(backbone)
-                model = F3NetDetector(backbone, construction["image_size"])
-            load_strict(model, weights, assign=True)
-        else:
+
+        def build(init_weights=None):
             backbone = Xception(**construction["backbone"])
-            if settings.get("init_weights"):
-                origin["pretrained_backbone"] = initialize_backbone(
-                    backbone, settings["init_weights"]
-                )
+            if init_weights:
+                origin["pretrained_backbone"] = initialize_backbone(backbone, init_weights)
             else:
                 replace_stem(backbone)
+            return F3NetDetector(backbone, construction["image_size"])
+
+        if weights is not None:
+            model = restore_model(build, weights)
+        else:
+            init_weights = settings.get("init_weights")
+            model = build(init_weights)
+            if not init_weights:
                 origin["initialization"] = "explicit_random"
-            model = F3NetDetector(backbone, construction["image_size"])
         super().__init__(
             model,
             construction=construction,

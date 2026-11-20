@@ -4,11 +4,15 @@ import torch
 
 from data.loader import ImageCollator
 
+from .trainer import ImageClassificationTrainer
 from .transforms import ImageTransform
 
 
 class ImageClassificationTask:
-    def __init__(self, model, *, construction, preprocessing, origin, ready=False):
+    trainer_class = ImageClassificationTrainer
+    default_epochs = None
+
+    def __init__(self, model, *, preprocessing, origin, construction=None, ready=False):
         self.model = model
         self.construction = construction
         self.preprocessing = preprocessing
@@ -19,14 +23,18 @@ class ImageClassificationTask:
     def get_collate_fn(self, stage):
         if stage not in ("train", "validation", "evaluation"):
             raise ValueError(f"Unknown image preprocessing stage: {stage}")
-        return ImageCollator(
-            transform=ImageTransform(self.preprocessing, stage == "train")
-        )
+        return self.build_collator(training=stage == "train")
+
+    def build_collator(self, *, training):
+        return ImageCollator(transform=ImageTransform(self.preprocessing, training))
+
+    def build_trainer(self):
+        return self.trainer_class(self.model, origin=self.origin)
 
     def fit(self, loader, *, validation_loader=None, runtime, settings, output_dir):
-        from .trainer import ImageClassificationTrainer
-
-        report = ImageClassificationTrainer(self.model, origin=self.origin).fit(
+        if self.default_epochs is not None:
+            settings = {"epochs": self.default_epochs, **settings}
+        report = self.build_trainer().fit(
             loader,
             validation_loader=validation_loader,
             runtime=runtime,
@@ -54,13 +62,22 @@ class ImageClassificationTask:
             raise ValueError("Cannot save an unfitted classification task")
         return {
             "version": 1,
-            "construction": self.construction,
-            "preprocessing": self.preprocessing,
-            "origin": self.origin,
+            **self.checkpoint_metadata(),
             "state_dict": {
                 k: v.detach().cpu() for k, v in self.model.state_dict().items()
             },
         }
+
+    def checkpoint_metadata(self):
+        return {
+            "construction": self.construction,
+            "preprocessing": self.preprocessing,
+            "origin": self.origin,
+        }
+
+    def unpack_state(self, state):
+        self.validate_state(state)
+        return state["construction"], state["preprocessing"], state["origin"], state["state_dict"]
 
     @staticmethod
     def validate_state(state):
