@@ -21,9 +21,13 @@ and its statistics without replaying old image IDs.
 Use `engine.py fit` with one of the three Lightning YAML presets under
 `configs/experiments/`. FF++ can fit its mapping from the source, or use the
 frozen paper mapping via `model.mapping_path`. A fresh UFD fit learns its own
-mapping. An incremental UFD stage restores the previous `model.pth` and adds
-the new source block to the inherited statistics.
+mapping. For incremental fitting, `model.checkpoint` points to the
+previous fit's `model.pth`. The new source block is added to its statistics
+using the same mapping and Ridge strength. The optional `dataset` field on
+the checkpoint reference checks its training source. Use the Hugging Face
+`HF_HOME` and `HF_HUB_OFFLINE` settings for cache and offline access.
 
-`engine.py evaluate` uses the fitted `model.pth`. It stores the fixed maps,
-sufficient statistics and folded coefficients from uniform mean-loss ridge,
-with `model.ridge_lambda` defaulting to 0.15. The frozen CLIP weights are shared.
+Each branch minimizes `||Zw - (y - mean(y))||² / n + λ||w||²`, where `Z` holds
+the projected features. Both branches use `model.ridge_lambda` (default 0.15).
+`engine.py evaluate` uses the fitted `model.pth`, which stores the maps,
+sufficient statistics and folded coefficients.

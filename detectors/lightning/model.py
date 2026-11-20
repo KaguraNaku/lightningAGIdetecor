@@ -1,10 +1,7 @@
-"""Fixed-eight analytic heads and bounded sufficient statistics.
-
-These objects retain fixed real-centred spectral maps with the new uniform penalty,
-label-centred uniform ridge, and equal raw CLS/patch-mean scores. Validation
-labels never enter the solver and the model never searches layers or epochs.
-"""
+"""Spectral mapping, Ridge fitting, and equal-weight CLS and patch-mean scores."""
 from dataclasses import dataclass
+import math
+from numbers import Real
 
 import numpy as np
 import scipy.linalg as la
@@ -13,6 +10,12 @@ LAYERS = (0, 3, 7, 10, 13, 16, 20, 23)
 BRANCHES = ("cls", "mean")
 PROJECTION_RANK = 128
 DEFAULT_RIDGE_LAMBDA = .15
+
+
+def positive_ridge_lambda(value):
+    if isinstance(value, bool) or not isinstance(value, Real) or not math.isfinite(value) or value <= 0:
+        raise ValueError("ridge_lambda must be finite and positive")
+    return float(value)
 
 
 @dataclass
@@ -47,14 +50,12 @@ class SufficientStatistics:
         return type(self)(self.g + other.g, self.h + other.h, self.sz + other.sz,
                           self.sy + other.sy, self.n + other.n)
 
-    def solve(self, rank=PROJECTION_RANK, ridge_lambda=DEFAULT_RIDGE_LAMBDA):
-        if self.n <= 0 or not 0 < self.sy < self.n or self.g.shape[0] % rank:
-            raise ValueError("Invalid sample counts or projected block width")
+    def solve(self, *, ridge_lambda=DEFAULT_RIDGE_LAMBDA):
+        if not 0 < self.sy < self.n:
+            raise ValueError("Ridge fitting requires both classes")
+        ridge_lambda = positive_ridge_lambda(ridge_lambda)
         q = self.h - self.sy / self.n * self.sz
-        # Mean squared error + lambda * ||w||²: one coefficient for every
-        # feature, independent of layer traces, partitioning and sample count.
-        if isinstance(ridge_lambda, bool) or not np.isfinite(ridge_lambda) or ridge_lambda <= 0:
-            raise ValueError("Uniform ridge_lambda must be finite and positive")
+        # Minimize ||Z w - (y - mean(y))||² / n + ridge_lambda * ||w||².
         penalty = self.n * ridge_lambda
         system = self.g.copy()
         system.flat[::len(system) + 1] += penalty
@@ -65,7 +66,7 @@ class SufficientStatistics:
             raise ValueError("Analytic ridge normal-equation check failed")
         return w, {"relative_normal_equation_residual": residual, "n": self.n,
                    "n_fake": int(self.sy), "label_mean": self.sy / self.n,
-                   "regularization": "uniform_mean_loss", "ridge_lambda": ridge_lambda,
+                   "ridge_lambda": ridge_lambda,
                    "system_diagonal_penalty": penalty}
 
 
@@ -179,7 +180,7 @@ class AnalyticReadout:
         for branch in BRANCHES:
             if branch not in self.statistics:
                 raise ValueError("Source sufficient statistics required before solving")
-            weights, audits[branch] = self.statistics[branch].solve(self.mappings[branch].rank, ridge_lambda)
+            weights, audits[branch] = self.statistics[branch].solve(ridge_lambda=ridge_lambda)
             beta, offset = self.mappings[branch].fold(weights)
             coefficients[branch] = .5 * beta
             bias += .5 * offset

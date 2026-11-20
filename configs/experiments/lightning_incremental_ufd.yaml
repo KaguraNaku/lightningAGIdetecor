@@ -7,13 +7,10 @@ runtime:
   output_dir: ../../outputs/lightning/incremental_FFpp_UFD
 model:
   factory: detectors.lightning.task:LightningTask
-  # Stage 1 uses the fitted FF++ model.pth. Later stages keep chain_id,
-  # advance stage_index and point at the previous stage's model.pth.
-  # Set dataset to that checkpoint's training source when using this check.
-  chain_id: ffpp-ufd
-  stage_index: 1
-  parent_checkpoint:
-    path: ${LIGHTNING_PARENT_CHECKPOINT}
+  # Start with FF++ model.pth. For later fits use the previous fit's model.pth
+  # and set dataset to UniversalFakeDetect.
+  checkpoint:
+    path: ${LIGHTNING_CHECKPOINT}
     dataset: FaceForensics++
 loader:
   batch_size: 32

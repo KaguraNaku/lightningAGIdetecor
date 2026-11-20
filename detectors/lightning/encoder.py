@@ -22,7 +22,7 @@ class CLIPEncoder(nn.Module):
     def forward(self, images):
         hidden = self.vision(pixel_values=images, output_hidden_states=True).hidden_states[1:]
         if len(hidden) != 24:
-            raise ValueError("The formal fixed-eight protocol requires 24 CLIP blocks")
+            raise ValueError("Lightning expects CLIP-L/14 with 24 transformer blocks")
         return {
             'cls': torch.stack([F.normalize(hidden[i][:, 0], dim=-1) for i in LAYERS], 1),
             'mean': torch.stack([F.normalize(hidden[i][:, 1:].mean(1), dim=-1) for i in LAYERS], 1),

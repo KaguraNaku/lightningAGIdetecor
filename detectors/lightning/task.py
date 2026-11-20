@@ -1,11 +1,5 @@
-"""Shared-engine Task for the formal fixed-eight Lightning protocol.
-
-The frozen encoder is a pinned shared resource. Checkpoints contain only the
-small readout head, fixed mapping, sufficient statistics and processor identity;
-they never duplicate encoder weights or persist per-image feature matrices.
-"""
+"""Fit, evaluate, and save Lightning's Ridge readout with the shared engine."""
 from pathlib import Path
-import math
 import os
 
 import numpy as np
@@ -19,89 +13,65 @@ from .encoder import CLIP_MODEL_ID, CLIP_WIDTH, CLIPEncoder
 from .model import (
     BRANCHES, DEFAULT_RIDGE_LAMBDA, LAYERS, PROJECTION_RANK,
     AnalyticReadout, MappingAccumulator, SpectralMapping, SufficientStatistics,
+    positive_ridge_lambda,
 )
 
 
-_CHECKPOINT_HEADER = {"format": "fixed8-cls-mean", "version": 1}
-
-
 class LightningTask:
+    """Fit a readout or restore a fitted checkpoint for evaluation.
+
+    A fresh fit accepts optional ridge_lambda and mapping_path. Set checkpoint
+    to continue from a previous fit's map and statistics.
+    """
+
     def __init__(self, settings, *, state=None):
-        self.chain_id = settings.get("chain_id")
-        self.stage_index = settings.get("stage_index", 0)
-        self.model = None
+        self.readout = None
         self.training_ids = set()
 
         # Build the runtime components on first use.
+        self.encoder_revision = None
         self.backbone = self.detector = self.processor = None
         self._processor_state = None
-        self._device = None
 
         if state is not None:
             self._restore_state(state)
-        elif parent := settings.get("parent_checkpoint"):
-            self._continue_fit(parent, settings)
+        elif checkpoint := settings.get("checkpoint"):
+            self._continue_fit(checkpoint, settings)
         else:
             self._start_fit(settings)
 
     def _start_fit(self, settings):
-        if self.chain_id is not None or self.stage_index != 0:
-            raise ValueError("Set a parent checkpoint for a continuation stage")
-        self.encoder_spec = {"model_id": CLIP_MODEL_ID, **self._encoder_settings(settings)}
-        self.ridge_lambda = self._positive_ridge(settings.get("ridge_lambda", DEFAULT_RIDGE_LAMBDA))
+        self.ridge_lambda = positive_ridge_lambda(settings.get("ridge_lambda", DEFAULT_RIDGE_LAMBDA))
         # Without a supplied mapping, fit() learns it from the source data.
         if "mapping_path" in settings:
-            self.model = AnalyticReadout.from_mapping_file(self._asset(settings["mapping_path"]))
-            self._validate_mapping(self.model)
+            self.readout = AnalyticReadout.from_mapping_file(self._asset(settings["mapping_path"]))
+            self._check_mapping_shape(self.readout)
 
-    def _continue_fit(self, reference, settings):
+    def _continue_fit(self, checkpoint, settings):
         if "mapping_path" in settings:
-            raise ValueError("Lightning continuation uses the mapping from its parent checkpoint")
-        parent = self._load_parent(reference)
-        if settings.get("ridge_lambda", parent.ridge_lambda) != parent.ridge_lambda:
-            raise ValueError("Continuation ridge_lambda must match the parent")
-        self.ridge_lambda = parent.ridge_lambda
-        self.model = parent.model
-        self.training_ids = set(parent.training_ids)
-        self.encoder_spec = {**parent.encoder_spec, **self._encoder_settings(settings)}
-        self._processor_state = parent._processor_state
+            raise ValueError("Lightning continuation uses the mapping stored in the checkpoint")
+        previous = self._load_checkpoint(checkpoint)
+        if settings.get("ridge_lambda", previous.ridge_lambda) != previous.ridge_lambda:
+            raise ValueError("Continuation ridge_lambda must match the checkpoint")
+        self.ridge_lambda = previous.ridge_lambda
+        self.readout = previous.readout
+        self.training_ids = set(previous.training_ids)
+        self.encoder_revision = previous.encoder_revision
+        self._processor_state = previous._processor_state
 
-    @staticmethod
-    def _encoder_settings(settings):
-        options = {}
-        if "local_files_only" in settings:
-            options["local_files_only"] = settings["local_files_only"]
-        if cache_dir := settings.get("cache_dir"):
-            options["cache_dir"] = str(Path(cache_dir).expanduser())
-        return options
-
-    @staticmethod
-    def _positive_ridge(value):
-        if (isinstance(value, bool) or not isinstance(value, (int, float))
-                or not math.isfinite(value) or value <= 0):
-            raise ValueError("Lightning requires a positive ridge_lambda")
-        return value
-
-    @property
-    def regularization(self):
-        return {"kind": "uniform_mean_loss", "ridge_lambda": self.ridge_lambda}
-
-    def _validate_mapping(self, model):
+    def _check_mapping_shape(self, readout):
         expected = (len(LAYERS), CLIP_WIDTH, PROJECTION_RANK)
-        if any(mapping.basis.shape != expected for mapping in model.mappings.values()):
+        if any(mapping.basis.shape != expected for mapping in readout.mappings.values()):
             raise ValueError(f"Both Lightning maps must have basis shape {expected}")
 
     def _restore_state(self, state):
-        if (any(state.get(key) != value for key, value in _CHECKPOINT_HEADER.items())
-                or tuple(state.get("layers", ())) != LAYERS):
-            raise ValueError("Unsupported fixed-eight Lightning checkpoint")
-        regularization = state.get("regularization", {})
-        if regularization.get("kind") != "uniform_mean_loss":
-            raise ValueError("Lightning checkpoints must declare uniform_mean_loss")
-        self.ridge_lambda = self._positive_ridge(regularization.get("ridge_lambda"))
-        self.encoder_spec = state["encoder"]
-        if self.encoder_spec["model_id"] != CLIP_MODEL_ID:
+        if tuple(state.get("layers", ())) != LAYERS:
+            raise ValueError("Lightning checkpoint uses different CLIP layers")
+        self.ridge_lambda = positive_ridge_lambda(state.get("ridge_lambda"))
+        encoder = state["encoder"]
+        if encoder["model_id"] != CLIP_MODEL_ID:
             raise ValueError("Lightning uses the fixed CLIP-L/14 encoder")
+        self.encoder_revision = encoder.get("revision")
         self._processor_state = state["processor"]
         ids = state["training_ids"]
         self.training_ids = set(ids)
@@ -122,29 +92,21 @@ class LightningTask:
                 or np.shape(coefficients["bias"]) != ()
                 or not all(np.isfinite(a).all() for a in coefficients.values())):
             raise ValueError("Invalid Lightning coefficients")
-        self.model = AnalyticReadout(mappings, statistics, coefficients)
-        self._validate_mapping(self.model)
+        self.readout = AnalyticReadout(mappings, statistics, coefficients)
+        self._check_mapping_shape(self.readout)
 
-    def _load_parent(self, reference):
-        if (not isinstance(self.chain_id, str) or not self.chain_id.strip()
-                or type(self.stage_index) is not int or self.stage_index < 1):
-            raise ValueError("Lightning continuation requires chain_id and positive stage_index")
+    def _load_checkpoint(self, reference):
         from engine.fit import restore
 
-        parent, saved = restore(self._asset(reference))
-        if not isinstance(parent, type(self)):
-            raise ValueError("Lightning continuation requires a fitted Lightning parent")
-        if self.stage_index == 1:
-            if parent.stage_index != 0 or saved["model"].get("parent_checkpoint"):
-                raise ValueError("The first Lightning continuation stage requires an independently fitted parent")
-        elif parent.chain_id != self.chain_id or parent.stage_index != self.stage_index - 1:
-            raise ValueError("Expected the previous Lightning stage from the same chain")
+        previous, saved = restore(self._asset(reference))
+        if not isinstance(previous, type(self)):
+            raise ValueError("Lightning continuation requires a fitted Lightning checkpoint")
         if isinstance(reference, dict) and (dataset := reference.get("dataset")):
             inputs = saved.get("provenance", {}).get("inputs", {})
             sources = {item["dataset"] for item in inputs.values() if item.get("split") == "train"}
             if sources != {dataset}:
-                raise ValueError(f"Expected a Lightning parent trained on {dataset}")
-        return parent
+                raise ValueError(f"Expected a Lightning checkpoint trained on {dataset}")
+        return previous
 
     @staticmethod
     def _asset(value):
@@ -170,72 +132,70 @@ class LightningTask:
             return {k: LightningTask._tensors(v) for k, v in value.items()}
         return value
 
-    def _encoder_options(self):
-        options = {key: value for key, value in self.encoder_spec.items() if key != "model_id"}
-        if "revision" not in options:
+    def _clip_revision(self):
+        if self.encoder_revision is None:
             from huggingface_hub import resolve_revision
 
-            revision = resolve_revision(CLIP_MODEL_ID, **options).resolved
-            self.encoder_spec["revision"] = options["revision"] = revision
-        return options
+            self.encoder_revision = resolve_revision(CLIP_MODEL_ID).resolved
+        return self.encoder_revision
 
-    def _ensure_processor(self):
+    def _get_processor(self):
         if self.processor is None:
             from transformers import CLIPImageProcessorPil
             if self._processor_state is not None:
                 self.processor = CLIPImageProcessorPil.from_dict(self._processor_state)
             else:
-                self.processor = CLIPImageProcessorPil.from_pretrained(CLIP_MODEL_ID, **self._encoder_options())
+                self.processor = CLIPImageProcessorPil.from_pretrained(
+                    CLIP_MODEL_ID, revision=self._clip_revision()
+                )
                 self._processor_state = self.processor.to_dict()
         return self.processor
 
-    def _ensure_backbone(self, runtime):
-        self._validate_runtime(runtime)
+    def _get_backbone(self, device):
         if self.backbone is None:
-            self.backbone = CLIPEncoder(load_clip_vision(CLIP_MODEL_ID, **self._encoder_options()))
-        if self._device != runtime.device:
-            self.backbone.to(runtime.device).eval(); self._device = runtime.device
-            self.detector = None
+            self.backbone = CLIPEncoder(
+                load_clip_vision(CLIP_MODEL_ID, revision=self._clip_revision())
+            ).eval()
+        if next(self.backbone.parameters()).device != device:
+            self.backbone.to(device)
         return self.backbone
 
     @staticmethod
-    def _validate_runtime(runtime):
+    def _check_precision(runtime):
         if runtime.precision != 'fp32':
-            raise ValueError('Formal Lightning requires strict FP32')
+            raise ValueError("Lightning requires FP32")
         if runtime.device.type == 'cuda' and (torch.backends.cuda.matmul.allow_tf32
                                                or torch.backends.cudnn.allow_tf32):
-            raise ValueError('Formal Lightning requires TF32 disabled')
+            raise ValueError("Lightning requires TF32 disabled")
 
     def get_collate_fn(self, stage):
         from data.loader import ImageCollator
-        return ImageCollator(self._ensure_processor())
+        return ImageCollator(self._get_processor())
 
     def _readouts(self, batch, runtime):
-        backbone = self._ensure_backbone(runtime)
-        features = backbone(batch['pixel_values'].to(runtime.device, non_blocking=True))
+        images = batch["pixel_values"].to(runtime.device, non_blocking=True)
+        features = self._get_backbone(images.device)(images)
         return {b: features[b].float().cpu().numpy() for b in BRANCHES}
 
     def fit(self, loader, *, validation_loader=None, runtime, settings, output_dir):
-        self._validate_runtime(runtime)
+        self._check_precision(runtime)
         if "ridge_lambda" in settings:
             raise ValueError("Declare ridge_lambda under model")
         if loader.dataset.header["split"] != "train":
             raise ValueError("Lightning fitting requires a training input")
         if any(settings.get(key) is not None for key in ("epochs", "patience", "monitor")):
             raise ValueError("Lightning fits analytically without epochs or validation-based selection")
-        if self.model is None:
+        if self.readout is None:
             accumulators = {b: MappingAccumulator() for b in BRANCHES}
             for batch in loader:
                 features = self._readouts(batch, runtime)
                 labels = batch["labels"].cpu().numpy()
                 for branch, accumulator in accumulators.items():
                     accumulator.update(features[branch], labels)
-            model = AnalyticReadout({b: accumulator.fit(PROJECTION_RANK)[0] for b, accumulator in accumulators.items()})
-            self._validate_mapping(model)
+            mappings = {b: accumulator.fit(PROJECTION_RANK)[0] for b, accumulator in accumulators.items()}
+            readout = AnalyticReadout(mappings)
         else:
-            if self.stage_index == 0 and self.model.statistics:
-                raise ValueError("Source statistics can only be fitted once")
-            model = AnalyticReadout(self.model.mappings, self.model.statistics.copy())
+            readout = AnalyticReadout(self.readout.mappings, self.readout.statistics.copy())
 
         seen = set()
         for batch in loader:
@@ -243,16 +203,16 @@ class LightningTask:
             if len(set(ids)) != len(ids) or seen.intersection(ids) or self.training_ids.intersection(ids):
                 raise ValueError('Duplicate/replayed source IDs would double-count statistics')
             seen.update(ids)
-            model.update(self._readouts(batch, runtime), batch['labels'].cpu().numpy())
+            readout.update(self._readouts(batch, runtime), batch['labels'].cpu().numpy())
         if not seen:
             raise ValueError('No successful source images')
-        audits = model.solve(self.ridge_lambda)
-        self.model = model
+        audits = readout.solve(self.ridge_lambda)
+        self.readout = readout
         self.training_ids.update(seen)
         self.detector = None
         from engine.evaluate import coverage, evaluate
         output = Path(output_dir); output.mkdir(parents=True, exist_ok=True)
-        report = {'fit_kind':'analytic_fixed8_equal_raw_cls_mean', 'epochs':None,
+        report = {'fit_kind':'linear_solve', 'epochs':None,
                   'new_training_images':len(seen), 'cumulative_training_images':len(self.training_ids),
                   'old_image_replay':0, 'validation_used_for_selection':False,
                   'normal_equation_checks':audits,
@@ -265,21 +225,29 @@ class LightningTask:
 
     @torch.inference_mode()
     def predict(self, images, *, runtime):
-        if self.model is None or self.model.coefficients is None:
+        if self.readout is None or self.readout.coefficients is None:
             raise ValueError('Fit or restore a Lightning checkpoint before prediction')
-        backbone = self._ensure_backbone(runtime)
+        self._check_precision(runtime)
+        images = images.to(runtime.device, non_blocking=True)
+        backbone = self._get_backbone(images.device)
         if self.detector is None:
-            self.detector = LightningDetector(backbone, self.model.coefficients).to(runtime.device).eval()
-        return self.detector(images.to(runtime.device, non_blocking=True))
+            self.detector = LightningDetector(backbone, self.readout.coefficients).eval()
+        if self.detector.bias.device != images.device:
+            self.detector.to(images.device)
+        return self.detector(images)
 
     def state_dict(self):
-        if self.model is None or self.model.coefficients is None:
-            raise ValueError('Cannot save an unfitted fixed-eight head')
-        self._ensure_processor()
-        return {**_CHECKPOINT_HEADER,'layers':list(LAYERS),
-                'encoder':dict(self.encoder_spec),'processor':self._processor_state,
-                'mapping':self._tensors({b:m.state_dict() for b,m in self.model.mappings.items()}),
-                'statistics':self._tensors({b:s.state_dict() for b,s in self.model.statistics.items()}),
-                'coefficients':self._tensors(self.model.coefficients),
-                'regularization':self.regularization,
-                'training_ids':sorted(self.training_ids)}
+        if self.readout is None or self.readout.coefficients is None:
+            raise ValueError("Fit Lightning before saving a checkpoint")
+        if self._processor_state is None:
+            self._get_processor()
+        return {
+            "layers": list(LAYERS),
+            "encoder": {"model_id": CLIP_MODEL_ID, "revision": self.encoder_revision},
+            "processor": self._processor_state,
+            "mapping": self._tensors({b: m.state_dict() for b, m in self.readout.mappings.items()}),
+            "statistics": self._tensors({b: s.state_dict() for b, s in self.readout.statistics.items()}),
+            "coefficients": self._tensors(self.readout.coefficients),
+            "ridge_lambda": self.ridge_lambda,
+            "training_ids": sorted(self.training_ids),
+        }
