@@ -12,10 +12,10 @@ import torch
 from torch.nn import functional as F
 
 from data.manifest import sha256
+from engine.continuity import StageContinuation
 from engine.evaluate import coverage, evaluate
 from engine.runtime import atomic_save
 from engine.training_timing import timed_fit, training_region, host_region, validation_meter
-from detectors._shared.continuity import StageContinuation
 
 logger = logging.getLogger(__name__)
 

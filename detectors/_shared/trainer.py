@@ -20,10 +20,10 @@ import torch
 from torch import nn
 
 from data.manifest import sha256
+from engine.continuity import StageContinuation
 from engine.evaluate import coverage, evaluate
 from engine.runtime import atomic_save
 from engine.training_timing import timed_fit, training_region, host_region, validation_meter
-from .continuity import StageContinuation
 
 logger = logging.getLogger(__name__)
 

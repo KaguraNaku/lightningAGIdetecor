@@ -34,7 +34,7 @@ def execute(
 
     from .config import input_settings, read_experiment
     from .evaluate import evaluate
-    from .fit import CheckpointReference, fit, restore
+    from .fit import CheckpointReference, create_training_task, fit, restore
     from .summary import summary_rows
     from .runtime import (
         Runtime,
@@ -45,7 +45,6 @@ def execute(
         dataset_adapter_for,
         sampler_factory_for,
         create_run_dir,
-        create_task,
     )
     started_clock = time.perf_counter()
     config = read_experiment(config_path, require_fit=command != "evaluate", env_file=env_file)
@@ -102,7 +101,7 @@ def execute(
             config["evaluation"]["threshold"] = saved["score"]["threshold"]
             status["checkpoint"] = CheckpointReference(checkpoint).state_dict()
         else:
-            task = create_task(config["model"])
+            task = create_training_task(config)
         (directory / "resolved-config.yaml").write_text(
             yaml.safe_dump(config, sort_keys=False)
         )
@@ -284,8 +283,10 @@ def main(argv=None):
         if args.command != "evaluate" and ModelRegistry.method_for(declaration["model"]) in ("gend", "forada", "prodet"):
             from .protocol import VideoSamplingPolicy
             VideoSamplingPolicy(declaration.get("video_sampling"))
+            fit_settings = declaration.get("fit")
+            ufd = isinstance(fit_settings, dict) and "ufd" in fit_settings
             if (ModelRegistry.resolve_factory(declaration["model"].get("factory")) == ModelRegistry.get("prodet").factory
-                    and declaration["model"].get("data_profile") != "specialized_quadruples"):
+                    and not ufd and declaration["model"].get("data_profile") != "specialized_quadruples"):
                 raise ValueError("New ProDet training requires author specialized_quadruples; legacy checkpoints remain evaluable")
         if (args.command != 'evaluate'
                 and ModelRegistry.resolve_factory(declaration['model'].get('factory')) == ModelRegistry.LEGACY_LIGHTNING):

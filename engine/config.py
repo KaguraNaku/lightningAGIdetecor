@@ -145,7 +145,15 @@ def read_experiment(path, *, require_fit=True, variables=None, env_file=None):
             item["manifest"] = str(resources.path(item["manifest"], must_exist=False))
     if require_fit:
         config["model"] = resources.model_settings(config["model"])
-        timing = config["fit"].get("gpu_timing")
+        fit = config["fit"]
+        if "ufd" in fit:
+            if not isinstance(fit["ufd"], dict):
+                raise ValueError("fit.ufd must be a mapping")
+            fit["ufd"] = resources.model_settings(fit["ufd"])
+            stage = fit.get("continuation")
+            if isinstance(stage, dict) and "previous_best" in stage:
+                stage["previous_best"] = resources.model_settings(stage["previous_best"])
+        timing = fit.get("gpu_timing")
         if isinstance(timing, dict) and "module" in timing:
             timing["module"] = str(resources.path(timing["module"]))
     # Outputs may not exist yet; inputs remain the dataset registry's concern.

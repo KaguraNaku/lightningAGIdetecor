@@ -8,7 +8,7 @@ from detectors._shared.checkpoint import load_strict
 from detectors._shared.task import ImageClassificationTask
 from detectors._shared.transforms import preprocessing_config
 from .clip import load_forada_clip
-from .data import ForAdaCollator, ForAdaDataset
+from .data import FakeGuardSampler, ForAdaCollator, ForAdaDataset, WholeImageForAdaDataset
 from .detector import ForAdaDetector
 from .trainer import ForAdaTrainer
 
@@ -86,7 +86,16 @@ class ForAdaTask(ImageClassificationTask):
         return ForAdaCollator(self.preprocessing, training=stage == "train")
 
     def prepare_dataset(self, dataset, *, stage):
-        return ForAdaDataset(dataset, require_localized=self.author_source) if stage == "train" else dataset
+        if stage != "train":
+            return dataset
+        if "UFD_adaptation" in self.origin:
+            return WholeImageForAdaDataset(dataset)
+        return ForAdaDataset(dataset, require_localized=self.author_source)
+
+    def get_sampler(self, dataset, *, batch_size, shuffle, seed, stage):
+        if stage == "train" and "UFD_adaptation" in self.origin:
+            return FakeGuardSampler(dataset.records, batch_size, seed)
+        return None
 
     def fit(self, loader, *, validation_loader=None, runtime, settings, output_dir):
         report = ForAdaTrainer(self.model, origin=self.origin).fit(

@@ -3,6 +3,7 @@
 from copy import deepcopy
 
 import torch
+from torch import nn
 
 from detectors._shared.checkpoint import load_strict, read_weights
 from detectors._shared.provenance import reference_for
@@ -27,6 +28,25 @@ RECIPE = {
     "decode_failure": "native_fatal_no_replacement_drop_or_relabel",
     "scheduler": None,
 }
+
+
+UFD_LABEL_MAP = {'real': 0, 'FF_Deepfakes': 1, 'FF_Face2Face': 2,
+           'FF_FaceSwap': 3, 'FF_NeuralTextures': 4, 'ProGAN': 5}
+
+
+def expand_progan_head(task):
+    old = task.model.head_spe.mlp[2]
+    if old.out_features != 5:
+        raise ValueError('Expected five FF++ auxiliary classes before adding ProGAN')
+    expanded = nn.Linear(old.in_features, 6, bias=old.bias is not None,
+                         device=old.weight.device, dtype=old.weight.dtype)
+    with torch.no_grad():
+        expanded.weight[:5].copy_(old.weight)
+        if old.bias is not None:
+            expanded.bias[:5].copy_(old.bias)
+    task.model.head_spe.mlp[2] = expanded
+    task.construction['specific_classes'] = 6
+    task.construction['specific_label_map'] = dict(UFD_LABEL_MAP)
 
 
 class UCFTask(ImageClassificationTask):

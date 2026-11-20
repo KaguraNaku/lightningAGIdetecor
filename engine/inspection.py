@@ -16,6 +16,7 @@ class ExperimentInspector:
             config["model"] = ModelRegistry.select(model, config["model"])
         data = DataConfig(datasets, env_file)
         policy = VideoSamplingPolicy(config["video_sampling"]) if "video_sampling" in config else None
+        ufd = config["fit"].get("ufd") is not None
         audits, source_plans, inputs = {}, {}, {}
         for name, item in config["inputs"].items():
             value = item["manifest"].replace("${MANIFEST_ROOT}", str(data.manifest_dir()))
@@ -32,12 +33,15 @@ class ExperimentInspector:
             audits[name] = {"manifest": str(path), "sha256": sha256(path), "images": len(rows),
                             "sampling": policy.validate(header, rows) if policy else None}
             if (header["split"] == "train" and config["model"]["factory"] == ModelRegistry.get("forada").factory):
-                from types import SimpleNamespace
-                from detectors.forada.data import ForAdaDataset
-                masks = ForAdaDataset(SimpleNamespace(records=rows, header=header, root=root, manifest_path=path),
-                                      require_localized=config["model"].get("training_profile") == "author_ffpp_8_32")
-                audits[name]["mask_supervision"] = masks.supervision_summary
-            if (header["split"] == "train" and config["model"]["factory"] == ModelRegistry.get("prodet").factory):
+                from detectors.forada.data import ForAdaDataset, WholeImageForAdaDataset
+                if ufd and name == config["fit"]["input"]:
+                    audits[name]["mask_supervision"] = WholeImageForAdaDataset(inputs[name]).selection_receipt()
+                else:
+                    masks = ForAdaDataset(inputs[name],
+                        require_localized=config["model"].get("training_profile") == "author_ffpp_8_32")
+                    audits[name]["mask_supervision"] = masks.supervision_summary
+            if (header["split"] == "train" and config["model"]["factory"] == ModelRegistry.get("prodet").factory
+                    and (not ufd or config["model"].get("data_profile") == "specialized_quadruples")):
                 from types import SimpleNamespace
                 from detectors.prodet.dataset import ProDetDataset
                 from detectors.prodet.protocol import neighbor_identity
@@ -76,10 +80,11 @@ class ExperimentInspector:
         import torch
         from data.loader import create_input_loader
         from .config import input_settings
-        from .runtime import Runtime, collator_for, dataset_adapter_for, sampler_factory_for, create_task
+        from .fit import create_training_task
+        from .runtime import Runtime, collator_for, dataset_adapter_for, sampler_factory_for
 
         Runtime.create({**config["runtime"], "device": "cpu", "precision": "fp32"}, config["seed"])
-        task = create_task(config["model"])
+        task = create_training_task(config)
         result = {"model_forward_executed": False, "optimizer_steps": 0, "inputs": {}}
         initialization = getattr(task, "origin", {}).get("pretrained_backbone")
         if initialization is not None:
