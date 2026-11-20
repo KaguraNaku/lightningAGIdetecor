@@ -200,35 +200,22 @@ class CheckpointImporter:
 
 
 class CheckpointReference:
-    """Stable identity for one native file or a fixed-eight NPZ head pair."""
+    """Stable identity for one engine checkpoint file."""
+
     def __init__(self, path):
         self.path = Path(path).expanduser().resolve(strict=True)
+        if not self.path.is_file():
+            raise ValueError("Expected an engine checkpoint file")
 
     def state_dict(self):
         from data.manifest import sha256
-        if self.path.is_file():
-            return {'path':str(self.path),'sha256':sha256(self.path)}
-        import hashlib
-        import json
-        components = {name:sha256(self.path/name)
-                      for name in ('coefficients.npz','mapping.npz')}
-        identity = hashlib.sha256(json.dumps(components,sort_keys=True).encode()).hexdigest()
-        return {'path':str(self.path),'sha256':identity,'kind':'fixed8_npz_head',
-                'components':components}
+        return {"path": str(self.path), "sha256": sha256(self.path)}
 
 
 def restore(path):
-    path = Path(path)
+    path = Path(path).expanduser()
     if path.is_dir():
-        from detectors.lightning.task import LightningTask
-        settings = {"mapping_path": str(path / "mapping.npz"),
-                    "coefficients_path": str(path / "coefficients.npz")}
-        task = LightningTask(settings)
-        checkpoint = {"version": 1,
-                      "model": {"factory": "detectors.lightning.task:LightningTask", **settings},
-                      "score": {"direction": "higher_is_fake", "threshold": 0.0},
-                      "provenance": {"operation": "read_existing_fixed8_npz"}}
-        return task, checkpoint
+        raise ValueError("Expected an engine checkpoint file")
     checkpoint = torch.load(
         path, map_location="cpu", weights_only=True, mmap=zipfile.is_zipfile(path)
     )

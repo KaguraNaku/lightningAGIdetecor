@@ -5,13 +5,14 @@ label-centred uniform ridge, and equal raw CLS/patch-mean scores. Validation
 labels never enter the solver and the model never searches layers or epochs.
 """
 from dataclasses import dataclass
-import hashlib
 
 import numpy as np
 import scipy.linalg as la
 
 LAYERS = (0, 3, 7, 10, 13, 16, 20, 23)
 BRANCHES = ("cls", "mean")
+PROJECTION_RANK = 128
+DEFAULT_RIDGE_LAMBDA = .15
 
 
 @dataclass
@@ -46,7 +47,7 @@ class SufficientStatistics:
         return type(self)(self.g + other.g, self.h + other.h, self.sz + other.sz,
                           self.sy + other.sy, self.n + other.n)
 
-    def solve(self, rank=128, ridge_lambda=.15):
+    def solve(self, rank=PROJECTION_RANK, ridge_lambda=DEFAULT_RIDGE_LAMBDA):
         if self.n <= 0 or not 0 < self.sy < self.n or self.g.shape[0] % rank:
             raise ValueError("Invalid sample counts or projected block width")
         q = self.h - self.sy / self.n * self.sz
@@ -102,14 +103,6 @@ class SpectralMapping:
     def state_dict(self):
         return {"mean": self.mean, "scale": self.scale, "basis": self.basis}
 
-    @property
-    def fingerprint(self):
-        h = hashlib.sha256()
-        for name, value in self.state_dict().items():
-            h.update(name.encode()); h.update(str(value.shape).encode())
-            h.update(memoryview(np.ascontiguousarray(value)))
-        return h.hexdigest()
-
 
 class MappingAccumulator:
     """Raw moments for a streaming, two-pass source mapping fit."""
@@ -135,7 +128,7 @@ class MappingAccumulator:
         self.real_square += np.square(real).sum(0)
         self.gram += np.einsum('nld,nle->lde', x, x, optimize=True)
 
-    def fit(self, rank=128):
+    def fit(self, rank=PROJECTION_RANK):
         if not self.n_real or self.n < rank or not 0 < rank <= self.sum.shape[-1]:
             raise ValueError("Insufficient source rows or genuine references")
         mean = self.real_sum / self.n_real
@@ -167,19 +160,13 @@ class AnalyticReadout:
         self.coefficients = coefficients
 
     @classmethod
-    def from_npz(cls, mapping_path, coefficients_path=None, statistics=None):
-        with np.load(mapping_path, allow_pickle=False) as data:
-            mappings = {b: SpectralMapping(*(data[b+'_'+k] for k in ('mean','scale','basis')))
-                        for b in BRANCHES}
-        coefficients = None
-        if coefficients_path is not None:
-            with np.load(coefficients_path, allow_pickle=False) as data:
-                coefficients = {k: data[k].copy() for k in (*BRANCHES, 'bias')}
-        states = {}
-        for branch, path in (statistics or {}).items():
-            with np.load(path, allow_pickle=False) as data:
-                states[branch] = SufficientStatistics.from_state(data)
-        return cls(mappings, states, coefficients)
+    def from_mapping_file(cls, path):
+        with np.load(path, allow_pickle=False) as data:
+            mappings = {
+                b: SpectralMapping(*(data[f"{b}_{key}"] for key in ("mean", "scale", "basis")))
+                for b in BRANCHES
+            }
+        return cls(mappings)
 
     def update(self, features, labels):
         for branch in BRANCHES:
@@ -187,7 +174,7 @@ class AnalyticReadout:
             self.statistics[branch] = (self.statistics[branch].add(extra)
                                       if branch in self.statistics else extra)
 
-    def solve(self, ridge_lambda=.15):
+    def solve(self, ridge_lambda=DEFAULT_RIDGE_LAMBDA):
         coefficients, audits, bias = {}, {}, 0.
         for branch in BRANCHES:
             if branch not in self.statistics:

@@ -34,14 +34,9 @@ class ModelRegistry:
         'detectors.continual.task:ContinualUFDTask': 'continual',
         'engine.continual:ContinualUFDTask': 'continual',
     }
-    LEGACY_LIGHTNING = 'detectors.lightning.compatibility.task:LightningTask'
     FACTORY_ALIASES = {
         **{f'detectors.{name}.experiment:create_task': f'detectors.{name}.task:{class_name}'
            for name, class_name in NATIVE_CLASSES.items()},
-        'detectors.lightning_detetcor.fixed8_task:create_task': 'detectors.lightning.task:LightningTask',
-        'detectors.lightning_detetcor.fixed8_task:Fixed8LightningTask': 'detectors.lightning.task:LightningTask',
-        'detectors.lightning_detetcor.experiment:create_task': LEGACY_LIGHTNING,
-        'detectors.lightning_detetcor.experiment:LightningTask': LEGACY_LIGHTNING,
     }
 
     @classmethod
@@ -76,8 +71,6 @@ class ModelRegistry:
         for spec in cls.SPECS:
             if canonical == spec.factory:
                 return spec.name
-        if canonical == cls.LEGACY_LIGHTNING:
-            return 'lightning'
         if canonical in cls.LEGACY_UFD_FACTORIES:
             return model.get('method') or cls.method_for(model.get('base_model', {}))
         return model.get('method')
@@ -94,7 +87,7 @@ class ModelRegistry:
                 cls.validate_factory(base)
                 if cls.resolve_factory(base['factory']) != cls.get(method).factory:
                     raise ValueError('Adaptation method differs from its base model')
-        elif factory not in {s.factory for s in cls.SPECS} | {cls.LEGACY_LIGHTNING}:
+        elif factory not in {s.factory for s in cls.SPECS}:
             raise ValueError('Factory is outside the nine-model scope: '+str(factory))
         return model
 

@@ -6,6 +6,10 @@ from torch.nn import functional as F
 from .model import LAYERS
 
 
+CLIP_MODEL_ID = "openai/clip-vit-large-patch14"
+CLIP_WIDTH = 1024
+
+
 class CLIPEncoder(nn.Module):
     def __init__(self, vision):
         super().__init__()

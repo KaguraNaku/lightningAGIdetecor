@@ -1,4 +1,6 @@
-# Frozen fixed-eight mapping; new fits use a single uniform ridge coefficient.
+# Fit the mapping from FF++ source rows by default. For the exact paper fit,
+# add model.mapping_path with path to the frozen FFpp-mapping.npz and
+# sha256: 41c1943db515f570ccddc6d402e659c3c3e3f032f17b5e79d95319bae531486e
 version: 1
 seed: 1024
 runtime:
@@ -9,12 +11,6 @@ runtime:
   output_dir: ../../outputs/lightning/ffpp
 model:
   factory: detectors.lightning.task:LightningTask
-  route: ffpp
-  backbone_id: openai/clip-vit-large-patch14
-  revision: 32bd64288804d66eefd0ccbe215aa642df71cc41
-  local_files_only: true
-  mapping_path: ${WEIGHT_ROOT}/lightning-fixed8-mapping.npz
-  ridge_lambda: 0.15
 loader:
   batch_size: 32
   num_workers: 4

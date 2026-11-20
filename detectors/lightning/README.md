@@ -18,20 +18,12 @@ it does not retain a new per-image feature matrix. The FF++ source statistics
 are included once. Incremental source blocks inherit the selected parent head
 and its statistics without replaying old image IDs.
 
-The common experiment entry point selects `--model lightning`. Its maintained
-factory is `detectors.lightning.task:LightningTask`. The same engine can read an
-existing head directory containing `coefficients.npz` and `mapping.npz`, including
-relative component symlinks. The pinned frozen encoder remains a shared asset;
-small analytic checkpoints do not duplicate its weights.
+Use `engine.py fit` with one of the three Lightning YAML presets under
+`configs/experiments/`. FF++ can fit its mapping from the source, or use the
+frozen paper mapping via `model.mapping_path`. A fresh UFD fit learns its own
+mapping. An incremental UFD stage restores the previous `model.pth` and adds
+the new source block to the inherited statistics.
 
-The `compatibility/` package contains the older generic Lightning Task and math
-needed to read historical checkpoints and run their existing parity tests. It is
-not another model in the public catalog. Historical factory strings are resolved
-by the common factory registry rather than alias files or `sys.modules` tricks.
-The rename preserves the existing checkpoint format/version and parameter keys.
-
-New fits use one uniform mean-loss coefficient, `model.ridge_lambda` (default
-0.15): `(G + n*lambda*I)w = X.T @ (y-mean(y))`. Layer-wise trace penalties
-and the older Task fitting entry have been removed. Historical saved heads
-remain readable for inference with their stored coefficients unchanged; they
-cannot become parents of new uniform-ridge fits.
+`engine.py evaluate` uses the fitted `model.pth`. It stores the fixed maps,
+sufficient statistics and folded coefficients from uniform mean-loss ridge,
+with `model.ridge_lambda` defaulting to 0.15. The frozen CLIP weights are shared.

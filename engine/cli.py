@@ -288,9 +288,6 @@ def main(argv=None):
             if (ModelRegistry.resolve_factory(declaration["model"].get("factory")) == ModelRegistry.get("prodet").factory
                     and not ufd and declaration["model"].get("data_profile") != "specialized_quadruples"):
                 raise ValueError("New ProDet training requires author specialized_quadruples; legacy checkpoints remain evaluable")
-        if (args.command != 'evaluate'
-                and ModelRegistry.resolve_factory(declaration['model'].get('factory')) == ModelRegistry.LEGACY_LIGHTNING):
-            raise ValueError('New Lightning training requires the formal fixed-eight Task')
         if args.command == "check":
             import json
             from .inspection import ExperimentInspector

@@ -17,7 +17,7 @@ class ResourceResolver:
     VARIABLE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
     FILE_FIELDS = frozenset({
         "init_weights", "initial_checkpoint", "base_clip_checkpoint",
-        "checkpoint", "mapping_path", "coefficients_path", "statistics_path",
+        "checkpoint", "mapping_path",
         "parent_checkpoint", "training_neighbors",
     })
     DIRECTORY_FIELDS = frozenset({"cache_dir", "assets_dir", "model_dir"})
@@ -77,12 +77,7 @@ class ResourceResolver:
                 return deepcopy(value)
             result = {}
             for key, item in value.items():
-                if key == "statistics" and isinstance(item, dict):
-                    result[key] = {
-                        branch: str(self.path(source)) if isinstance(source, str) else visit(source)
-                        for branch, source in item.items()
-                    }
-                elif isinstance(item, str) and key in self.FILE_FIELDS | {"path"}:
+                if isinstance(item, str) and key in self.FILE_FIELDS | {"path"}:
                     result[key] = str(self.path(item))
                 elif isinstance(item, str) and key in self.DIRECTORY_FIELDS:
                     result[key] = str(self.path(item, kind="directory"))
