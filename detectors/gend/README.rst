@@ -2,8 +2,8 @@ Independent GenD CLIP adapter
 ==============================
 
 GenDTask composes GenDDetector, a lazy CLIP encoder and the shared whole-batch
-trainer. The selected DeepfakeBench recipe is yermandy/GenD_CLIP_L_14; its cached
-configuration specifies LinearNorm. The port supports linear and LinearNorm
+trainer. The default yermandy/GenD_CLIP_L_14 recipe uses LinearNorm.
+The Task defines the default vision architecture and supports linear and LinearNorm
 heads explicitly. External GenD's DINO and Perception alternatives are not
 connected by this CLIP recipe. Production never imports the GenD checkout or
 modifies sys.path.
@@ -37,9 +37,9 @@ Checkpoint identity and imports
 --------------------------------
 
 Default loading is offline-only and pins the published model revision
-891ce014a0308386c4d7d25b3dcf436a22db5504. The default profile retains the actual
-cached head configuration. No download or random fallback occurs when it is
-missing. Explicit initialization: random is available for constructed fixtures.
+891ce014a0308386c4d7d25b3dcf436a22db5504. The Task defines the vision architecture
+and head, and loads the weights from the cache. Explicit initialization: random
+is available for constructed fixtures.
 Custom geometry requires that option or an explicit raw checkpoint.
 
 initial_checkpoint accepts raw GenD keys (feature_extractor and model.linear)
@@ -86,7 +86,7 @@ Tests cover both heads, normalization and zero features, freeze gradients,
 autocast behavior, both raw layouts, HF symlinks, strict standalone restore and
 the full L/14 training/evaluation workflow. Best selection is checked after an
 injected negative second validation score; this tests control flow, not accuracy.
-Large temporary workflow snapshots use /var/tmp and retain failed runs; bounded
+Large temporary workflow snapshots use the system temporary directory. Bounded
 test logs identify their paths. Successful temporary test fixtures are removed.
 
 The example preserves train batch24/eval batch32, Adam lr2e-4/decay5e-4,
@@ -94,5 +94,4 @@ disabled augmentation and no scheduler. Eleven sweeps match source epochs0..10.
 Remake manifests and validation selection differ from the full original
 experiment. Historical benchmark checkpoint scores, GPU numerical alignment and
 full-dataset reproduction remain unverified. All model checks use bounded_run.py:
-one CPU job, RAM3072MiB, swap0, CPU2 and host RAM/disk reserve4096MiB. See
-configs/migrations/validation.json for commands, run IDs and artifact paths.
+one CPU job, RAM3072MiB, swap0, CPU2 and host RAM/disk reserve4096MiB.

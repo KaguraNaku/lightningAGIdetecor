@@ -38,5 +38,4 @@ and the native-resolution unified workflow. ImageNet initialization is a separat
 gate; the binary head is seeded rather than trained in that check. Historical
 trained-detector scores and full-dataset reproduction remain unverified. Use
 tools/bounded_run.py for model checks and tools/test_cpu.py for serial capped
-regression. Retained results, failed audit attempts and commands are linked in
-configs/migrations/validation.json.
+regression.

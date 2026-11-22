@@ -61,16 +61,17 @@ by ``landmarks`` and ``.png`` replaced by ``.npy``.
 
 .. code-block:: bash
 
+    source .env
     uv run python engine.py prepare-data --env-file .env \
       --dataset FaceForensics++ --split train --frames-per-video 8
     uv run python engine.py prepare-data --env-file .env --model prodet \
       --dataset FaceForensics++ --split train --frames-per-video 8 \
-      --source-manifest /absolute/manifests/FaceForensics++-train-frames-8.jsonl
+      --source-manifest "$MANIFEST_ROOT/FaceForensics++-train-frames-8.jsonl"
     # Prepare val/test manifests with --frames-per-video 32 as usual.
     uv run python engine.py check --model prodet --env-file .env --batches 1
     uv run python engine.py fit --model prodet --env-file .env
     uv run python engine.py evaluate --model prodet --env-file .env \
-      --checkpoint /absolute/run/fit/model.pth --test-inputs ffpp_test ufd_test
+      --checkpoint outputs/example/fit/model.pth --test-inputs ffpp_test ufd_test
 
 Preparation writes a new bound manifest, a hashed ``.neighbors.json`` and a
 ``.preparation.json`` receipt. The nearest100 KDTree uses flattened float32
@@ -344,11 +345,11 @@ landmarks, neighbor sidecar, optimizer or training loop is needed for importing.
 .. code-block:: bash
 
     uv run python engine.py import-checkpoint --model prodet \
-      --input /absolute/ProDet_best.pth \
-      --output /absolute/prodet-author/model.pth
+      --input weights/ProDet_best.pth \
+      --output outputs/prodet-author/model.pth
 
     uv run python engine.py evaluate --model prodet \
-      --checkpoint /absolute/prodet-author/model.pth \
+      --checkpoint outputs/prodet-author/model.pth \
       --test-inputs ffpp_test ufd_test
 
 The output uses the same engine checkpoint format and ordinary evaluation path

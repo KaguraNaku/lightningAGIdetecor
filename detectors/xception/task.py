@@ -4,7 +4,6 @@ from detectors._shared.checkpoint import restore_model
 from detectors._shared.detector import BackboneClassifier
 from detectors._shared.task import ImageClassificationTask
 from detectors._shared.transforms import preprocessing_config
-from detectors._shared.provenance import reference_for
 
 from .backbone import Xception
 from .checkpoint import initialize_backbone, read_initial_detector_weights
@@ -29,7 +28,7 @@ class XceptionTask(ImageClassificationTask):
                 data_aug={"rotate_prob": 0.0, **settings.get("data_aug", {})},
             )
             weights, receipt = read_initial_detector_weights(settings, detector="Xception")
-            origin = {**reference_for("xception"), "objective": "cross_entropy", **receipt}
+            origin = {"method": "xception", "objective": "cross_entropy", **receipt}
 
         def build():
             return BackboneClassifier(Xception(**construction))

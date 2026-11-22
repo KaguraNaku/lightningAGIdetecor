@@ -35,5 +35,4 @@ all initialized model state and predictions, including the twelve-channel stem
 and seeded untrained head. Unit tests cover spectral boundaries, residuals,
 initialization, strict conversion and native-resolution train/save/restore/
 evaluate. Historical trained scores and full experiments remain unverified.
-See configs/migrations/validation.json and run model checks with bounded_run.py
-and complete CPU regression with test_cpu.py.
+Run model checks with bounded_run.py and complete CPU regression with test_cpu.py.

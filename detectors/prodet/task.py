@@ -7,7 +7,6 @@ import re
 import torch
 
 from data.loader import ImageCollator
-from detectors._shared.provenance import reference_for
 from detectors._shared.task import ImageClassificationTask
 from detectors._shared.transforms import ImageTransform, preprocessing_config
 from .backbone import EfficientNetB4
@@ -134,7 +133,7 @@ class ProDetTask(ImageClassificationTask):
             "training_neighbors": deepcopy(neighbors),
         }
         origin = {
-            **reference_for("prodet"),
+            "method": "prodet",
             "source_only_selection": True,
             "full_experiment_reproduction": False,
             "data_recipe_note": "specialized_quadruples executes the author SBIPlusV2 four-domain recipe;native_entrypoint is historical binary compatibility",

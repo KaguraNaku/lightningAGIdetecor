@@ -6,7 +6,6 @@ import torch
 from torch import nn
 
 from detectors._shared.checkpoint import restore_model
-from detectors._shared.provenance import reference_for
 from detectors._shared.task import ImageClassificationTask
 from detectors._shared.transforms import preprocessing_config
 from detectors.xception.checkpoint import read_initial_detector_weights
@@ -91,7 +90,7 @@ class UCFTask(ImageClassificationTask):
             "specific_label_map": deepcopy(settings.get("specific_label_map", DEFAULT_LABEL_MAP)),
         }
         origin = {
-            **reference_for("ucf"),
+            "method": "ucf",
             "selection_policy": "Remake explicit source manifests and validation; not native full experiment",
             "label_binding": "Explicit metadata overrides declared category map; no automatic alias correction or type renumbering",
             "evaluation_observers": "Native label/probability counters optional in direct model API; unified evaluator owns metrics",

@@ -54,12 +54,12 @@ Legacy weights and offline evaluation
 Convert a checkpoint once, then use the shared evaluation entry point::
 
     uv run python -m detectors.effort.checkpoint \
-        --input /absolute/path/to/author/best.pth \
-        --output /absolute/path/to/new/remake-effort.pth \
+        --input weights/effort-author.pth \
+        --output outputs/remake-effort.pth \
         --local-files-only
     uv run python engine.py evaluate \
         --model effort \
-        --checkpoint /absolute/path/to/new/remake-effort.pth
+        --checkpoint outputs/remake-effort.pth
 
 Conversion supports a raw author state_dict or a training envelope containing
 state_dict, with optional DataParallel module prefixes. It requires the CLIP

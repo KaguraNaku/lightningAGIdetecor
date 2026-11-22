@@ -1,7 +1,6 @@
 """F3Net FAD composition with preserved constructor RNG and standalone state."""
 
 from detectors._shared.checkpoint import restore_model
-from detectors._shared.provenance import reference_for
 from detectors._shared.task import ImageClassificationTask
 from detectors._shared.transforms import preprocessing_config
 from detectors.xception.backbone import Xception
@@ -35,7 +34,7 @@ class F3NetTask(ImageClassificationTask):
             )
             weights, receipt = read_initial_detector_weights(settings, detector="F3Net")
             origin = {
-                **reference_for("f3net"),
+                "method": "f3net",
                 "objective": "cross_entropy",
                 "recipe": "local_FAD_only_full_Xception",
                 **receipt,

@@ -1,12 +1,8 @@
 """Pinned GenD CLIP-L/14 task, with explicit head semantics on raw conversion."""
 
-from importlib.resources import files
-import json
-
 from huggingface_hub import hf_hub_download
 
 from detectors._shared.checkpoint import restore_model
-from detectors._shared.provenance import reference_for
 from detectors._shared.task import ImageClassificationTask
 from detectors._shared.transforms import preprocessing_config
 from .checkpoint import read_gend_weights
@@ -16,12 +12,23 @@ from .encoder import GenDCLIPEncoder
 
 MODEL_ID = "yermandy/GenD_CLIP_L_14"
 REVISION = "891ce014a0308386c4d7d25b3dcf436a22db5504"
-
-
-def default_specification():
-    return json.loads(
-        files("configs").joinpath("migrations/gend_clip_l14.json").read_text()
-    )
+DEFAULT_HEAD = "LinearNorm"
+DEFAULT_VISION_CONFIG = {
+    "image_size": 224,
+    "patch_size": 14,
+    "num_channels": 3,
+    "hidden_size": 1024,
+    "intermediate_size": 4096,
+    "num_hidden_layers": 24,
+    "num_attention_heads": 16,
+    "projection_dim": 768,
+    "hidden_act": "quick_gelu",
+    "layer_norm_eps": 1e-5,
+    "attention_dropout": 0.0,
+    "initializer_range": 0.02,
+    "initializer_factor": 1.0,
+    "return_dict": True,
+}
 
 
 class GenDTask(ImageClassificationTask):
@@ -30,11 +37,8 @@ class GenDTask(ImageClassificationTask):
     def __init__(self, settings, *, state=None):
         backbone = None
         if state is None:
-            spec = default_specification()
-            construction, preprocessing, origin = self._training_config(settings, spec)
-            weights, backbone, weight_origin = self._initial_weights(
-                settings, construction, default_head=spec["head"]
-            )
+            construction, preprocessing, origin = self._training_config(settings)
+            weights, backbone, weight_origin = self._initial_weights(settings, construction)
             origin.update(weight_origin)
         else:
             construction, preprocessing, origin, weights = self.unpack_state(state)
@@ -48,10 +52,10 @@ class GenDTask(ImageClassificationTask):
         )
 
     @staticmethod
-    def _training_config(settings, spec):
+    def _training_config(settings):
         construction = {
-            "vision_config": settings.get("vision_config", spec["vision_config"]),
-            "head": settings.get("head", spec["head"]),
+            "vision_config": settings.get("vision_config", DEFAULT_VISION_CONFIG.copy()),
+            "head": settings.get("head", DEFAULT_HEAD),
             "attention_implementation": settings.get("attention_implementation", "sdpa"),
             "freeze_policy": "feature_extractor_norm_or_ln_names_plus_complete_head",
             "forward_precision": "float32_autocast_disabled",
@@ -65,7 +69,7 @@ class GenDTask(ImageClassificationTask):
             data_aug=settings.get("data_aug"),
         )
         origin = {
-            **reference_for("gend"),
+            "method": "gend",
             "objective": "cross_entropy",
             "backbone_family": "CLIP",
         }
@@ -85,7 +89,7 @@ class GenDTask(ImageClassificationTask):
         return construction, preprocessing, origin
 
     @staticmethod
-    def _initial_weights(settings, construction, *, default_head):
+    def _initial_weights(settings, construction):
         if checkpoint := settings.get("initial_checkpoint"):
             if "head" not in settings:
                 raise ValueError("Raw GenD imports require explicit head: linear or LinearNorm")
@@ -120,7 +124,7 @@ class GenDTask(ImageClassificationTask):
         if settings.get("initialization") == "random":
             return None, None, {"initialization": "explicit_constructed_random"}
 
-        if settings.get("vision_config") is not None or construction["head"] != default_head:
+        if settings.get("vision_config") is not None or construction["head"] != DEFAULT_HEAD:
             raise ValueError(
                 "Custom GenD geometry/head requires random initialization or explicit raw checkpoint"
             )
@@ -130,7 +134,7 @@ class GenDTask(ImageClassificationTask):
         weights, receipt = read_gend_weights(path)
         return weights, None, {
             **receipt,
-            "pretrained_model": {"model_id": MODEL_ID, "revision": REVISION, "head": default_head},
+            "pretrained_model": {"model_id": MODEL_ID, "revision": REVISION, "head": DEFAULT_HEAD},
         }
 
     def _configure_training(self, construction, preprocessing):

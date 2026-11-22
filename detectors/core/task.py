@@ -1,7 +1,6 @@
 """CORE composition and self-contained source-validation experiment state."""
 
 from detectors._shared.checkpoint import restore_model
-from detectors._shared.provenance import reference_for
 from detectors._shared.task import ImageClassificationTask
 from detectors._shared.transforms import preprocessing_config
 from detectors.xception.backbone import Xception
@@ -34,7 +33,7 @@ class CORETask(ImageClassificationTask):
             )
             weights, receipt = read_initial_detector_weights(settings, detector="CORE")
             origin = {
-                **reference_for("core"),
+                "method": "core",
                 "objective": "cosine_consistency_mse_plus_ce",
                 "pairing": "positional_batch_halves_floor_count",
                 **receipt,

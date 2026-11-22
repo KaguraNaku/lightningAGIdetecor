@@ -22,7 +22,7 @@ engine = "engine.cli:main"
 include = ["backbones*", "models*", "detectors*", "data*", "configs*", "engine*"]
 
 [tool.setuptools.package-data]
-configs = ["*.yaml", "migrations/*.json"]
+configs = ["*.yaml"]
 "detectors.forada" = ["*.json", "LICENSE.*", "README.md"]
 
 [tool.ruff.lint]
