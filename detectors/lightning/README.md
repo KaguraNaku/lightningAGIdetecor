@@ -27,6 +27,11 @@ using the same mapping and Ridge strength. The optional `dataset` field on
 the checkpoint reference checks its training source. Use the Hugging Face
 `HF_HOME` and `HF_HUB_OFFLINE` settings for cache and offline access.
 
+CLIP uses FP32 by default. Use `--precision fp16` or `--precision bf16`
+for mixed precision. CUDA allows TF32 by default for Lightning. Use
+`--precision fp32 --no-tf32` for paper reproduction. Ridge statistics,
+solving, and scores use FP64.
+
 Each branch minimizes `||Zw - (y - mean(y))||² / n + λ||w||²`, where `Z` holds
 the projected features. Both branches use `model.ridge_lambda` (default 0.15).
 `engine.py evaluate` uses the fitted `model.pth`, which stores the maps,

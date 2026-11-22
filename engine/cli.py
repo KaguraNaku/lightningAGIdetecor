@@ -62,7 +62,7 @@ def execute(
         config["evaluation"]["inputs"] = list(evaluation_inputs)
     for key, value in (overrides or {}).items():
         if value is not None:
-            config["runtime"][key] = str(value)
+            config["runtime"][key] = value if key == "allow_tf32" else str(value)
     if command not in ("fit", "evaluate", "run"):
         raise ValueError(f"Unknown command: {command}")
     if command == "evaluate" and checkpoint is None:
@@ -81,6 +81,7 @@ def execute(
         "inputs": {},
     }
     atomic_save(directory / "run.json", status)
+    previous_tf32 = None
     try:
         (directory / "resolved-config.yaml").write_text(
             yaml.safe_dump(config, sort_keys=False)
@@ -102,6 +103,14 @@ def execute(
             status["checkpoint"] = CheckpointReference(checkpoint).state_dict()
         else:
             task = create_training_task(config)
+        if (
+            runtime.device.type == "cuda"
+            and "allow_tf32" not in config["runtime"]
+            and ModelRegistry.method_for(config["model"]) == "lightning"
+        ):
+            previous_tf32 = torch.backends.cuda.matmul.allow_tf32, torch.backends.cudnn.allow_tf32
+            Runtime.set_tf32(True)
+            config["runtime"]["allow_tf32"] = True
         (directory / "resolved-config.yaml").write_text(
             yaml.safe_dump(config, sort_keys=False)
         )
@@ -186,6 +195,8 @@ def execute(
         logger.exception("Experiment failed")
         raise
     finally:
+        if previous_tf32 is not None:
+            torch.backends.cuda.matmul.allow_tf32, torch.backends.cudnn.allow_tf32 = previous_tf32
         status["finished_at"] = datetime.now(timezone.utc).isoformat()
         atomic_save(directory / "run.json", status)
         timing_path = directory / 'fit/timing.json'
@@ -236,6 +247,11 @@ def main(argv=None):
         command.add_argument("--output-dir", type=Path)
         command.add_argument("--device")
         command.add_argument("--precision", choices=["fp32", "fp16", "bf16"])
+        if name != "check":
+            command.add_argument(
+                "--tf32", dest="allow_tf32", action=argparse.BooleanOptionalAction,
+                help="Allow TF32 on CUDA; enabled by default for Lightning",
+            )
         command.add_argument(
             "--log-level", choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
         )
@@ -305,7 +321,7 @@ def main(argv=None):
             evaluation_inputs=args.test_inputs,
             overrides={
                 key: getattr(args, key)
-                for key in ("output_dir", "device", "precision", "log_level")
+                for key in ("output_dir", "device", "precision", "allow_tf32", "log_level")
             },
         )
     except Exception as error:

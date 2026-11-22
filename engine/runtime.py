@@ -42,9 +42,13 @@ class Runtime:
         if device.type == "cpu" and settings["precision"] == "fp16":
             raise ValueError("fp16 requires CUDA; use fp32 or bf16 on CPU")
         if "allow_tf32" in settings:
-            torch.backends.cuda.matmul.allow_tf32 = settings["allow_tf32"]
-            torch.backends.cudnn.allow_tf32 = settings["allow_tf32"]
+            cls.set_tf32(settings["allow_tf32"])
         return cls(device, settings["precision"])
+
+    @staticmethod
+    def set_tf32(enabled):
+        torch.backends.cuda.matmul.allow_tf32 = enabled
+        torch.backends.cudnn.allow_tf32 = enabled
 
     def autocast(self):
         if self.precision == "fp32":

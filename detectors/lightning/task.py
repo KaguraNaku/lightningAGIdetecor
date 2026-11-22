@@ -160,25 +160,18 @@ class LightningTask:
             self.backbone.to(device)
         return self.backbone
 
-    @staticmethod
-    def _check_precision(runtime):
-        if runtime.precision != 'fp32':
-            raise ValueError("Lightning requires FP32")
-        if runtime.device.type == 'cuda' and (torch.backends.cuda.matmul.allow_tf32
-                                               or torch.backends.cudnn.allow_tf32):
-            raise ValueError("Lightning requires TF32 disabled")
-
     def get_collate_fn(self, stage):
         from data.loader import ImageCollator
         return ImageCollator(self._get_processor())
 
     def _readouts(self, batch, runtime):
         images = batch["pixel_values"].to(runtime.device, non_blocking=True)
-        features = self._get_backbone(images.device)(images)
+        backbone = self._get_backbone(images.device)
+        with runtime.autocast():
+            features = backbone(images)
         return {b: features[b].float().cpu().numpy() for b in BRANCHES}
 
     def fit(self, loader, *, validation_loader=None, runtime, settings, output_dir):
-        self._check_precision(runtime)
         if "ridge_lambda" in settings:
             raise ValueError("Declare ridge_lambda under model")
         if loader.dataset.header["split"] != "train":
@@ -227,14 +220,14 @@ class LightningTask:
     def predict(self, images, *, runtime):
         if self.readout is None or self.readout.coefficients is None:
             raise ValueError('Fit or restore a Lightning checkpoint before prediction')
-        self._check_precision(runtime)
         images = images.to(runtime.device, non_blocking=True)
         backbone = self._get_backbone(images.device)
         if self.detector is None:
             self.detector = LightningDetector(backbone, self.readout.coefficients).eval()
         if self.detector.bias.device != images.device:
             self.detector.to(images.device)
-        return self.detector(images)
+        with runtime.autocast():
+            return self.detector(images)
 
     def state_dict(self):
         if self.readout is None or self.readout.coefficients is None:
