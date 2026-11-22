@@ -3,7 +3,7 @@
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from .adapters.frames import EXTENSIONS
+from .adapters.image_folders import IMAGE_EXTENSIONS
 
 
 @dataclass(frozen=True)
@@ -43,7 +43,7 @@ def reconcile(
             continue
         video = reference[directory]
         if any(
-            p.is_file() and p.suffix.lower() in EXTENSIONS for p in directory.iterdir()
+            p.is_file() and p.suffix.lower() in IMAGE_EXTENSIONS for p in directory.iterdir()
         ):
             active.append(video)
         else:
@@ -81,21 +81,3 @@ def reconcile(
         "files_outside_requested_metadata": unmatched,
         "available_video_metadata": metadata,
     }
-
-
-def materialize(
-    videos: list[Video], root: Path, name: str, split: str, frame_count: int | None
-):
-    from .adapters.frames import video_frames
-
-    for video in videos:
-        yield from video_frames(
-            root,
-            video.directory,
-            dataset=name,
-            split=split,
-            label=video.label,
-            video_id=video.video_id,
-            category=video.category,
-            frame_count=frame_count,
-        )

@@ -1,1 +1,1 @@
-"""Dataset-specific indexing, without decoding or copying image payloads."""
+"""Index supported image and video storage formats."""

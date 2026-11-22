@@ -2,17 +2,15 @@
 
 import pyarrow.parquet as pq
 
-from data.manifest import Sample
+from data.manifest import Sample, relative_path
 
 
-def shard_paths(settings, split):
+def _shard_paths(settings, split):
     patterns = settings.get("splits", {}).get(split)
     if not isinstance(patterns, list) or not patterns:
         raise ValueError(f"Explicit Parquet patterns required for split {split}")
     files = set()
     for pattern in patterns:
-        from data.manifest import relative_path
-
         relative_path(pattern)
         if "**" in pattern:
             raise ValueError("Recursive Parquet globs are not supported")
@@ -23,14 +21,19 @@ def shard_paths(settings, split):
     return sorted(files)
 
 
-def build(settings, name, split, frame_count):
+def prepare(settings, name, split, frame_count):
+    sources = _shard_paths(settings, split)
     if frame_count is not None:
         raise ValueError("frames_per_video applies to videos, not Parquet images")
+    return _records(settings, name, split, sources), sources, None
+
+
+def _records(settings, name, split, sources):
     image_column = settings.get("image_column", "image")
     label_column = settings.get("label_column", "label")
     label_map = settings.get("label_map", {"real": 0, "fake": 1})
     metadata_columns = settings.get("metadata_columns", [])
-    for path in shard_paths(settings, split):
+    for path in sources:
         with pq.ParquetFile(path) as shard:
             required = {image_column, label_column, *metadata_columns}
             if not required.issubset(shard.schema_arrow.names):
