@@ -7,6 +7,7 @@ import re
 
 import yaml
 
+from .models import ModelRegistry
 from .resources import ResourceResolver
 
 
@@ -87,6 +88,11 @@ def read_experiment(path, *, require_fit=True, variables=None, env_file=None):
             or inputs[fit["input"]]["split"] != "train"
         ):
             raise ValueError("fit.input must name a train input")
+        if factory == ModelRegistry.get("lightning").factory:
+            if "ridge_lambda" in fit:
+                raise ValueError("Declare ridge_lambda under model")
+            if any(fit.get(key) is not None for key in ("epochs", "patience", "monitor")):
+                raise ValueError("Lightning fits analytically without epochs or validation-based selection")
         validation = fit.get("validation_input")
         if validation is not None and (
             not isinstance(validation, str)

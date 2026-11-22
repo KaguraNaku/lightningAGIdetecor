@@ -20,9 +20,10 @@ Use `engine.py fit` with one of the three Lightning YAML presets under
 `configs/experiments/`. FF++ can fit its mapping from the source, or use the
 frozen paper mapping via `model.mapping_path`. A fresh UFD fit learns its own
 mapping. For incremental fitting, `model.checkpoint` points to the
-previous fit's `model.pth`. The new source block is added to its statistics
-using the same mapping and Ridge strength. The optional `dataset` field on
-the checkpoint reference checks its training source.
+previous fit's `model.pth`. For continuation, declare only `factory` and
+`checkpoint` under `model`. The checkpoint supplies the backbone, layers,
+mapping and Ridge strength. The optional `dataset` field on the checkpoint
+reference checks its training source.
 
 Set `model.backbone_id` to a Hugging Face ID or local model directory. CLIP-L/14
 is the default. Set `model.layers` to the zero-based transformer blocks to

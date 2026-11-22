@@ -60,8 +60,8 @@ class LightningTask:
     def _continue_fit(self, checkpoint, settings):
         from engine.fit import restore
 
-        if "mapping_path" in settings:
-            raise ValueError("Lightning continuation uses the mapping stored in the checkpoint")
+        if overrides := sorted(settings.keys() - {"checkpoint"}):
+            raise ValueError(f"Lightning continuation only accepts model.checkpoint. Remove: {', '.join(overrides)}")
         previous, saved = restore(checkpoint)
         if not isinstance(previous, type(self)):
             raise ValueError("Lightning continuation requires a fitted Lightning checkpoint")
@@ -70,16 +70,6 @@ class LightningTask:
             sources = {item["dataset"] for item in inputs.values() if item.get("split") == "train"}
             if sources != {dataset}:
                 raise ValueError(f"Expected a Lightning checkpoint trained on {dataset}")
-        if settings.get("ridge_lambda", previous.ridge_lambda) != previous.ridge_lambda:
-            raise ValueError("Continuation ridge_lambda must match the checkpoint")
-        if str(settings.get("backbone_id", previous.backbone_id)) != previous.backbone_id:
-            raise ValueError("Continuation backbone_id must match the checkpoint")
-        if _layer_indices(settings.get("layers", previous.layers)) != previous.layers:
-            raise ValueError("Continuation layers must match the checkpoint")
-        if "revision" in settings:
-            revision = resolve_backbone_revision(previous.backbone_id, settings["revision"])
-            if revision != previous.encoder_revision:
-                raise ValueError("Continuation revision must match the checkpoint")
         self.ridge_lambda = previous.ridge_lambda
         self.readout = previous.readout
         self.training_ids = set(previous.training_ids)
@@ -116,7 +106,6 @@ class LightningTask:
         if (len(ids) != len(self.training_ids)
                 or any(s.n != len(ids) or not 0 < s.sy < s.n
                        or s.g.shape != (width, width) or s.h.shape != (width,) or s.sz.shape != (width,)
-                       or not all(np.isfinite(a).all() for a in (s.g, s.h, s.sz))
                        for s in statistics.values())):
             raise ValueError("Lightning source statistics do not match its training IDs or projected width")
         if (any(coefficients[branch].shape != feature_shape for branch in readout.branches)
@@ -164,24 +153,20 @@ class LightningTask:
         return {branch: values.float().cpu().numpy() for branch, values in features.items()}
 
     def fit(self, loader, *, validation_loader=None, runtime, settings, output_dir):
-        if "ridge_lambda" in settings:
-            raise ValueError("Declare ridge_lambda under model")
-        if loader.dataset.header["split"] != "train":
-            raise ValueError("Lightning fitting requires a training input")
-        if any(settings.get(key) is not None for key in ("epochs", "patience", "monitor")):
-            raise ValueError("Lightning fits analytically without epochs or validation-based selection")
+        # Manifest labels are binary. Pass a boolean mask to both numerical branches.
         if self.readout is None:
             accumulators = {}
             for batch in loader:
                 features = self._readouts(batch, runtime)
                 if not accumulators:
                     accumulators = {branch: MappingAccumulator() for branch in features}
-                labels = batch["labels"].cpu().numpy()
+                labels = batch["labels"].cpu().numpy().astype(bool, copy=False)
                 for branch, accumulator in accumulators.items():
                     accumulator.update(features[branch], labels)
             if not accumulators:
                 raise ValueError("No successful source images")
-            mappings = {b: accumulator.fit(PROJECTION_RANK)[0] for b, accumulator in accumulators.items()}
+            mappings = {branch: accumulator.fit_mapping(PROJECTION_RANK)
+                        for branch, accumulator in accumulators.items()}
             readout = AnalyticReadout(mappings)
         else:
             readout = AnalyticReadout(self.readout.mappings, self.readout.statistics.copy())
@@ -192,7 +177,8 @@ class LightningTask:
             if len(set(ids)) != len(ids) or seen.intersection(ids) or self.training_ids.intersection(ids):
                 raise ValueError('Duplicate/replayed source IDs would double-count statistics')
             seen.update(ids)
-            readout.update(self._readouts(batch, runtime), batch['labels'].cpu().numpy())
+            labels = batch["labels"].cpu().numpy().astype(bool, copy=False)
+            readout.update(self._readouts(batch, runtime), labels)
         if not seen:
             raise ValueError('No successful source images')
         audits = readout.solve(self.ridge_lambda)

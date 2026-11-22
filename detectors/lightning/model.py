@@ -27,11 +27,11 @@ class SufficientStatistics:
 
     @classmethod
     def from_rows(cls, z, y):
-        z, y = np.asarray(z, dtype=np.float64), np.asarray(y, dtype=np.float64)
-        if z.ndim != 2 or y.shape != (len(z),) or not np.isin(y, [0, 1]).all():
+        z, y = np.asarray(z, dtype=np.float64), np.asarray(y)
+        if (z.ndim != 2 or y.shape != (len(z),)
+                or (y.dtype != np.bool_ and not np.isin(y, [0, 1]).all())):
             raise ValueError("Aligned binary-labelled projected rows required")
-        if not np.isfinite(z).all():
-            raise ValueError("Projected rows must be finite")
+        y = y.astype(np.float64, copy=False)
         return cls(z.T @ z, z.T @ y, z.sum(0), float(y.sum()), len(y))
 
     @classmethod
@@ -58,10 +58,12 @@ class SufficientStatistics:
         penalty = self.n * ridge_lambda
         system = self.g.copy()
         system.flat[::len(system) + 1] += penalty
-        w = la.cho_solve(la.cho_factor(system, lower=True, check_finite=False), q,
-                        check_finite=False)
+        if not np.isfinite(q).all():
+            raise ValueError("Ridge right-hand side must be finite")
+        factor = la.cho_factor(system, lower=True)
+        w = la.cho_solve(factor, q, check_finite=False)
         residual = float(la.norm(self.g @ w + penalty * w - q) / max(la.norm(q), 1e-30))
-        if residual >= 1e-8 or not np.isfinite(w).all():
+        if not math.isfinite(residual) or residual >= 1e-8 or not np.isfinite(w).all():
             raise ValueError("Analytic ridge normal-equation check failed")
         return w, {"relative_normal_equation_residual": residual, "n": self.n,
                    "n_fake": int(self.sy), "label_mean": self.sy / self.n,
@@ -112,10 +114,9 @@ class MappingAccumulator:
 
     def update(self, x, y):
         x, y = np.asarray(x, dtype=np.float64), np.asarray(y)
-        if x.ndim != 3 or y.shape != (len(x),) or not np.isin(y, [0, 1]).all():
+        if (x.ndim != 3 or y.shape != (len(x),)
+                or (y.dtype != np.bool_ and not np.isin(y, [0, 1]).all())):
             raise ValueError("Aligned binary readouts required")
-        if not np.isfinite(x).all():
-            raise ValueError("Readouts must be finite")
         if self.sum is None:
             self.sum = np.zeros(x.shape[1:]); self.real_sum = np.zeros_like(self.sum)
             self.real_square = np.zeros_like(self.sum)
@@ -128,26 +129,22 @@ class MappingAccumulator:
         self.real_square += np.square(real).sum(0)
         self.gram += np.einsum('nld,nle->lde', x, x, optimize=True)
 
-    def fit(self, rank=PROJECTION_RANK):
+    def fit_mapping(self, rank=PROJECTION_RANK):
         if not self.n_real or self.n < rank or not 0 < rank <= self.sum.shape[-1]:
             raise ValueError("Insufficient source rows or genuine references")
         mean = self.real_sum / self.n_real
         scale = np.sqrt(np.maximum(self.real_square / self.n_real - mean**2, 0) + 1e-6)
-        bases, errors = [], []
+        bases = []
         for layer in range(len(mean)):
             mu, sx = mean[layer], self.sum[layer]
             gram = (self.gram[layer] - np.outer(sx, mu) - np.outer(mu, sx)
                     + self.n * np.outer(mu, mu)) / np.outer(scale[layer], scale[layer])
-            ev, basis = la.eigh(gram, subset_by_index=(len(mu)-rank, len(mu)-1),
-                                check_finite=False)
-            ev, basis = ev[::-1], basis[:, ::-1].copy()
+            _, basis = la.eigh(gram, subset_by_index=(len(mu) - rank, len(mu) - 1))
+            basis = basis[:, ::-1].copy()
             signs = np.sign(basis[np.abs(basis).argmax(0), np.arange(rank)])
             signs[signs == 0] = 1; basis *= signs
-            error = float(la.norm(gram @ basis - basis * ev) / max(la.norm(gram), 1e-30))
-            if error >= 1e-8:
-                raise ValueError("Spectral mapping residual failed")
-            bases.append(basis); errors.append(error)
-        return SpectralMapping(mean, scale, np.stack(bases)), {"spectral_residuals": errors}
+            bases.append(basis)
+        return SpectralMapping(mean, scale, np.stack(bases))
 
 
 class AnalyticReadout:
@@ -188,11 +185,3 @@ class AnalyticReadout:
         coefficients['bias'] = np.asarray(bias)
         self.coefficients = coefficients
         return audits
-
-    def predict_readouts(self, features):
-        if self.coefficients is None:
-            raise ValueError("Fit or import a coefficient head before prediction")
-        result = np.full(len(features["mean"]), float(self.coefficients["bias"]))
-        for branch in self.branches:
-            result += np.einsum('nld,ld->n', features[branch], self.coefficients[branch])
-        return result
