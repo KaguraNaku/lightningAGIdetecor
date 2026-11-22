@@ -2,23 +2,16 @@
 
 from pathlib import Path
 import math
-import zipfile
 
 import torch
 
 from data.manifest import sha256
+from engine.fit import read_checkpoint
 
 
 def read_weights(path, *, encoding=None):
     path = Path(path).expanduser().resolve()
-    pickle_options = {"encoding": encoding} if encoding is not None else {}
-    envelope = torch.load(
-        path,
-        map_location="cpu",
-        weights_only=True,
-        mmap=zipfile.is_zipfile(path),
-        **pickle_options,
-    )
+    envelope = read_checkpoint(path, encoding=encoding)
     if not isinstance(envelope, dict):
         raise ValueError("Checkpoint must be a named state dictionary or envelope")
     weights = envelope.get("state_dict", envelope)

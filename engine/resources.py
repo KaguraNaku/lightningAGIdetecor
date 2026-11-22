@@ -5,6 +5,21 @@ import os
 from pathlib import Path
 import re
 
+from data.manifest import sha256
+
+
+def resolve_asset(reference, *, require_checksum=False):
+    """Resolve a path or a reference containing a path and an optional SHA256."""
+    spec = reference if isinstance(reference, dict) else {"path": reference}
+    path = spec["path"]
+    if isinstance(path, str):
+        path = os.path.expandvars(path)
+    path = Path(path).expanduser().resolve(strict=True)
+    expected = spec["sha256"] if require_checksum else spec.get("sha256")
+    if (require_checksum or expected) and sha256(path) != expected:
+        raise ValueError(f"Asset checksum differs: {path}")
+    return path
+
 
 class ResourceResolver:
     """Expand declared variables and anchor local files to their configuration.

@@ -8,16 +8,17 @@ import time
 import torch
 
 from .models import ModelRegistry
+from .resources import resolve_asset
 from .runtime import atomic_save, create_task, unpack_task_state
 
 
-def _read_training_parent(reference):
-    from data.manifest import sha256
-
-    path = Path(reference["path"])
-    if sha256(path) != reference["sha256"]:
-        raise ValueError(f"Training parent checkpoint checksum differs: {path}")
-    return torch.load(path, map_location="cpu", weights_only=True, mmap=True)
+def read_checkpoint(reference, *, require_checksum=False, encoding=None):
+    """Load saved tensors on CPU, using mmap for zip-format checkpoints."""
+    path = resolve_asset(reference, require_checksum=require_checksum)
+    if not path.is_file():
+        raise ValueError("Expected an engine checkpoint file")
+    options = {"encoding": encoding} if encoding is not None else {}
+    return torch.load(path, map_location="cpu", weights_only=True, mmap=zipfile.is_zipfile(path), **options)
 
 
 def _initial_ufd_detector(model, policy, method):
@@ -39,7 +40,7 @@ def _initial_ufd_detector(model, policy, method):
         return create_task(model), model, adaptation
 
     reference = {"path": parent, "sha256": policy["parent_sha256"]}
-    saved = _read_training_parent(reference)
+    saved = read_checkpoint(reference, require_checksum=True)
     if ModelRegistry.resolve_factory(saved["model"]["factory"]) != model["factory"]:
         raise ValueError("FF++ parent method differs from the selected detector")
     task = create_task(saved["model"], state=saved["task"])
@@ -53,7 +54,7 @@ def _initial_ufd_detector(model, policy, method):
 
 
 def _continue_ufd_detector(reference, expected_factory):
-    saved = _read_training_parent(reference)
+    saved = read_checkpoint(reference, require_checksum=True)
     declaration, saved_state = saved["model"], saved["task"]
     legacy = ModelRegistry.LEGACY_UFD_FACTORIES.get(declaration["factory"])
     if legacy == "continual":
@@ -213,12 +214,7 @@ class CheckpointReference:
 
 
 def restore(path):
-    path = Path(path).expanduser()
-    if path.is_dir():
-        raise ValueError("Expected an engine checkpoint file")
-    checkpoint = torch.load(
-        path, map_location="cpu", weights_only=True, mmap=zipfile.is_zipfile(path)
-    )
+    checkpoint = read_checkpoint(path)
     if (
         checkpoint.get("version") != 1
         or checkpoint.get("score", {}).get("direction") != "higher_is_fake"

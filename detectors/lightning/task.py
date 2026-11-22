@@ -1,11 +1,10 @@
 """Fit, evaluate, and save Lightning's Ridge readout with the shared engine."""
 from pathlib import Path
-import os
 
 import numpy as np
 import torch
 
-from data.manifest import sha256
+from engine.resources import resolve_asset
 from models.clip import load_clip_vision
 
 from .detector import LightningDetector
@@ -44,13 +43,22 @@ class LightningTask:
         self.ridge_lambda = positive_ridge_lambda(settings.get("ridge_lambda", DEFAULT_RIDGE_LAMBDA))
         # Without a supplied mapping, fit() learns it from the source data.
         if "mapping_path" in settings:
-            self.readout = AnalyticReadout.from_mapping_file(self._asset(settings["mapping_path"]))
+            self.readout = AnalyticReadout.from_mapping_file(resolve_asset(settings["mapping_path"]))
             self._check_mapping_shape(self.readout)
 
     def _continue_fit(self, checkpoint, settings):
+        from engine.fit import restore
+
         if "mapping_path" in settings:
             raise ValueError("Lightning continuation uses the mapping stored in the checkpoint")
-        previous = self._load_checkpoint(checkpoint)
+        previous, saved = restore(checkpoint)
+        if not isinstance(previous, type(self)):
+            raise ValueError("Lightning continuation requires a fitted Lightning checkpoint")
+        if isinstance(checkpoint, dict) and (dataset := checkpoint.get("dataset")):
+            inputs = saved.get("provenance", {}).get("inputs", {})
+            sources = {item["dataset"] for item in inputs.values() if item.get("split") == "train"}
+            if sources != {dataset}:
+                raise ValueError(f"Expected a Lightning checkpoint trained on {dataset}")
         if settings.get("ridge_lambda", previous.ridge_lambda) != previous.ridge_lambda:
             raise ValueError("Continuation ridge_lambda must match the checkpoint")
         self.ridge_lambda = previous.ridge_lambda
@@ -94,27 +102,6 @@ class LightningTask:
             raise ValueError("Invalid Lightning coefficients")
         self.readout = AnalyticReadout(mappings, statistics, coefficients)
         self._check_mapping_shape(self.readout)
-
-    def _load_checkpoint(self, reference):
-        from engine.fit import restore
-
-        previous, saved = restore(self._asset(reference))
-        if not isinstance(previous, type(self)):
-            raise ValueError("Lightning continuation requires a fitted Lightning checkpoint")
-        if isinstance(reference, dict) and (dataset := reference.get("dataset")):
-            inputs = saved.get("provenance", {}).get("inputs", {})
-            sources = {item["dataset"] for item in inputs.values() if item.get("split") == "train"}
-            if sources != {dataset}:
-                raise ValueError(f"Expected a Lightning checkpoint trained on {dataset}")
-        return previous
-
-    @staticmethod
-    def _asset(value):
-        spec = value if isinstance(value, dict) else {'path': value}
-        path = Path(os.path.expandvars(spec['path'])).expanduser().resolve(strict=True)
-        if spec.get("sha256") and sha256(path) != spec["sha256"]:
-            raise ValueError("Lightning source asset checksum differs")
-        return path
 
     @staticmethod
     def _numpy(value):

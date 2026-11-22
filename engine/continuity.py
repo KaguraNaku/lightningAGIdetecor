@@ -13,6 +13,7 @@ import torch
 
 from data.manifest import sha256
 
+from .fit import read_checkpoint
 from .runtime import atomic_save
 
 
@@ -95,9 +96,7 @@ class StageContinuation:
         else:
             if not previous or Path(previous['path']).name != 'best.pth':
                 raise ValueError('Later stages require the selected best.pth training state')
-            if sha256(Path(previous['path'])) != previous['sha256']:
-                raise ValueError('Previous selected training checkpoint SHA changed')
-            self.parent = torch.load(previous['path'], weights_only=True, mmap=True, map_location='cpu')
+            self.parent = read_checkpoint(previous, require_checksum=True)
             p = self.parent.get('continuation')
             if not p or p['chain_id'] != self.spec['chain_id'] or p['stage_index'] != self.stage_index - 1:
                 raise ValueError('Cannot skip, reorder or mix continuous stages')
