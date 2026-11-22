@@ -11,7 +11,7 @@ import pyarrow.parquet as pq
 from torch.utils.data import Dataset
 
 from .config import DataConfig
-from .manifest import read_manifest, read_metadata, relative_path, sha256
+from .manifest import read_manifest, relative_path, sha256
 
 logger = logging.getLogger(__name__)
 
@@ -35,7 +35,6 @@ class ManifestDataset(Dataset):
         self.consecutive_decode_errors = 0
         self.manifest_path = Path(manifest).resolve()
         self.header, self.records = read_manifest(manifest)
-        read_metadata(manifest, self.header)
         self.settings = config.dataset(self.header["dataset"])
         self.root = self.settings["root"]
         self.media_type = config.media_type(self.header["dataset"])
@@ -46,18 +45,18 @@ class ManifestDataset(Dataset):
         self._pid = os.getpid()
         self._groups = OrderedDict()
         self._cache_capacity = 1
-        for source, identity in self.header["sources"].items():
+        # Source metadata can document how the manifest was built. Verify only sample files.
+        sources = self.header["sources"]
+        for record in self.records:
+            if record.storage == "parquet" and record.path not in sources:
+                raise ValueError(f"Unfingerprinted Parquet shard: {record.path}")
+        for source in dict.fromkeys(record.path for record in self.records if record.path in sources):
+            identity = sources[source]
             path = self.root / relative_path(source)
             if path.stat().st_size != identity["size"] or (
                 verify_hashes and sha256(path) != identity["sha256"]
             ):
                 raise ValueError(f"Data source changed since manifest creation: {path}")
-        for record in self.records:
-            if (
-                record.storage == "parquet"
-                and record.path not in self.header["sources"]
-            ):
-                raise ValueError(f"Unfingerprinted Parquet shard: {record.path}")
 
     def __len__(self):
         return len(self.records)

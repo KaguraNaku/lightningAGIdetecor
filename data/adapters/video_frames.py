@@ -5,16 +5,12 @@ from data.reconcile import Video, reconcile
 from .image_folders import image_files
 
 
-def prepare(settings, name, split, frame_count, *, indexed_split=None):
+def prepare(settings, name, split, frame_count):
     root = settings["root"]
-    if indexed_split is None:
-        expected = _directory_groups(settings, name, split)
-        available = [video.directory for video in expected]
-        sources = ()
-    else:
-        expected, available, sources = indexed_split
+    expected = _directory_groups(settings, name, split)
+    available = [video.directory for video in expected]
     videos, inventory = reconcile(root, expected, available)
-    return _records(videos, root, name, split, frame_count), sources, inventory
+    return _records(videos, root, name, split, frame_count), (), inventory
 
 
 def _directory_groups(settings, name, split):

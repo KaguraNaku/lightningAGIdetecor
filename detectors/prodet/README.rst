@@ -52,7 +52,7 @@ quadruples (96 model images), eight workers and 21 epochs; no patience-based
 early termination. Validation/test batches are32. Source validation chooses
 the best checkpoint; target scores never choose training parameters.
 
-Prepare the ordinary FF++ train8 manifest and then bind existing native
+Use the bundled FF++ training manifest to bind the existing native
 256-coordinate landmark NPY files through the same engine. Missing/invalid
 landmarks fail before training; there is no zero-landmark or binary fallback.
 Set ``MANIFEST_ROOT`` and ``WEIGHT_ROOT`` in the environment file. Landmarks
@@ -61,17 +61,13 @@ by ``landmarks`` and ``.png`` replaced by ``.npy``.
 
 .. code-block:: bash
 
-    source .env
-    uv run python engine.py prepare-data --env-file .env \
-      --dataset FaceForensics++ --split train --frames-per-video 8
     uv run python engine.py prepare-data --env-file .env --model prodet \
-      --dataset FaceForensics++ --split train --frames-per-video 8 \
-      --source-manifest "$MANIFEST_ROOT/FaceForensics++-train-frames-8.jsonl"
-    # Prepare val/test manifests with --frames-per-video 32 as usual.
+      --dataset FaceForensics++ --split train \
+      --source-manifest configs/manifests/FaceForensics++-train-frames-8.jsonl
     uv run python engine.py check --model prodet --env-file .env --batches 1
     uv run python engine.py fit --model prodet --env-file .env
     uv run python engine.py evaluate --model prodet --env-file .env \
-      --checkpoint outputs/example/fit/model.pth --test-inputs ffpp_test ufd_test
+      --checkpoint outputs/example/fit/model.pth --test-inputs ffpp_test
 
 Preparation writes a new bound manifest, a hashed ``.neighbors.json`` and a
 ``.preparation.json`` receipt. The nearest100 KDTree uses flattened float32
@@ -350,7 +346,7 @@ landmarks, neighbor sidecar, optimizer or training loop is needed for importing.
 
     uv run python engine.py evaluate --model prodet \
       --checkpoint outputs/prodet-author/model.pth \
-      --test-inputs ffpp_test ufd_test
+      --test-inputs ffpp_test
 
 The output uses the same engine checkpoint format and ordinary evaluation path
 as other ProDet checkpoints. Existing destinations are rejected, not overwritten.

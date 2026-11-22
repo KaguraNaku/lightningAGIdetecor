@@ -8,7 +8,6 @@ import shutil
 import tempfile
 
 from .adapters import image_folders, parquet, video_frames
-from .benchmark_splits import read_split
 from .config import DataConfig
 from .manifest import inventory_digest, sha256, write_json, write_manifest
 
@@ -39,17 +38,14 @@ def prepare_manifest(
     if limit is not None and (type(limit) is not int or limit < 1):
         raise ValueError("limit must be positive or None")
     settings = config.dataset(name)
-    adapter = settings["adapter"]
+    adapter = settings.get("adapter")
+    if adapter is None:
+        raise ValueError(f"{name}: select its existing manifest from the configured inputs")
     prepare = ADAPTERS.get(adapter)
     if prepare is None:
         raise ValueError(f"Unknown adapter: {adapter}")
     root = settings["root"]
-    options = {}
-    if "split_format" in settings:
-        if adapter != "video_frames":
-            raise ValueError("split_format applies to the video_frames adapter")
-        options["indexed_split"] = read_split(settings, split)
-    records, sources, inventory = prepare(settings, name, split, frames_per_video, **options)
+    records, sources, inventory = prepare(settings, name, split, frames_per_video)
     output = Path(output).expanduser().absolute()
     # A mistaken output path must never overwrite an input shard/split.
     if output.resolve() in {source.resolve() for source in sources}:

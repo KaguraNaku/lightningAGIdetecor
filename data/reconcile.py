@@ -16,15 +16,6 @@ class Video:
     source_metadata: dict = field(default_factory=dict)
 
 
-def frame_directories(directory: Path) -> list[Path]:
-    """Bounded scan of physical entries; no recursive symlink traversal."""
-    if not directory.is_dir():
-        return []
-    return sorted(
-        p for p in directory.iterdir() if p.is_dir() and not p.name.startswith(".")
-    )
-
-
 def reconcile(
     root: Path, expected: list[Video], available: list[Path]
 ) -> tuple[list[Video], dict]:

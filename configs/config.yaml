@@ -25,7 +25,7 @@ train_loader:
   shuffle: true
 
 evaluation:
-  inputs: [ffpp_test, ufd_test]
+  inputs: [ffpp_test]
   threshold: 0.5
   video_aggregation: mean
   group_by: [category]
@@ -34,33 +34,20 @@ fit:
   input: ffpp_train
   validation_input: ffpp_val
 
-# Select the adapter by storage format. Benchmark video splits also declare split_format.
+# Datasets with bundled manifests only need their local data root.
 datasets:
   FaceForensics++:
     media_type: video
     root: ${FFPP_ROOT}
-    adapter: video_frames
-    split_format: ffpp
-    compression: c23
-    # Standard FF++ manipulation methods. FaceShifter is held out below.
-    methods: [Deepfakes, Face2Face, FaceSwap, NeuralTextures]
   FaceShifter:
     media_type: video
     root: ${FFPP_ROOT}
-    adapter: video_frames
-    split_format: ffpp
-    compression: c23
-    methods: [FaceShifter]
   Celeb-DF-v1:
     media_type: video
     root: ${CELEB_DF_V1_ROOT}
-    adapter: video_frames
-    split_format: celeb_df
   Celeb-DF-v2:
     media_type: video
     root: ${CELEB_DF_V2_ROOT}
-    adapter: video_frames
-    split_format: celeb_df
   OpenFake-v1:
     media_type: image
     root: ${OPENFAKE_V1_ROOT}
@@ -94,10 +81,6 @@ datasets:
   DFDC:
     media_type: video
     root: ${DFDC_ROOT}
-    adapter: video_frames
-    split_format: dfdc
-    splits:
-      test: {metadata: test/metadata.json, frames: test/frames}
   DFDCP:
     media_type: video
     root: ${DFDCP_ROOT}
@@ -144,19 +127,35 @@ datasets:
     label_map: {'0': 0, '1': 1}
     metadata_columns: [generator]
 
-# Named manifest subsets. {frames} follows the configured video sampling.
+# Paths for bundled manifests are relative to this config.
 inputs:
   ffpp_train:
     dataset: FaceForensics++
-    manifest: ${MANIFEST_ROOT}/FaceForensics++-train-frames-{frames}.jsonl
+    manifest: manifests/FaceForensics++-train-frames-8.jsonl
     split: train
   ffpp_val:
     dataset: FaceForensics++
-    manifest: ${MANIFEST_ROOT}/FaceForensics++-val-frames-{frames}.jsonl
+    manifest: manifests/FaceForensics++-val-frames-32.jsonl
     split: val
   ffpp_test:
     dataset: FaceForensics++
-    manifest: ${MANIFEST_ROOT}/FaceForensics++-test-frames-{frames}.jsonl
+    manifest: manifests/FaceForensics++-test-frames-32.jsonl
+    split: test
+  faceshifter_test:
+    dataset: FaceShifter
+    manifest: manifests/FaceShifter-test-frames-32.jsonl
+    split: test
+  celeb_df_v1_test:
+    dataset: Celeb-DF-v1
+    manifest: manifests/Celeb-DF-v1-test-frames-32.jsonl
+    split: test
+  celeb_df_v2_test:
+    dataset: Celeb-DF-v2
+    manifest: manifests/Celeb-DF-v2-test-frames-32.jsonl
+    split: test
+  dfdc_test:
+    dataset: DFDC
+    manifest: manifests/DFDC-test-frames-32.jsonl
     split: test
   ufd_test:
     dataset: UniversalFakeDetect
