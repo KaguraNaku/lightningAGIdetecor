@@ -1,4 +1,4 @@
-"""Spectral mapping, Ridge fitting, and equal-weight CLS and patch-mean scores."""
+"""Spectral mapping, Ridge fitting, and equal-weight global and patch-mean scores."""
 from dataclasses import dataclass
 import math
 from numbers import Real
@@ -6,7 +6,6 @@ from numbers import Real
 import numpy as np
 import scipy.linalg as la
 
-LAYERS = (0, 3, 7, 10, 13, 16, 20, 23)
 BRANCHES = ("cls", "mean")
 PROJECTION_RANK = 128
 DEFAULT_RIDGE_LAMBDA = .15
@@ -154,8 +153,9 @@ class MappingAccumulator:
 class AnalyticReadout:
     """One head's two maps, statistics and equal-weight folded coefficients."""
     def __init__(self, mappings, statistics=None, coefficients=None):
-        if set(mappings) != set(BRANCHES):
-            raise ValueError("Both CLS and mean maps are required")
+        if set(mappings) not in ({"cls", "mean"}, {"global", "mean"}):
+            raise ValueError("Supply a CLS or global map alongside the patch-mean map")
+        self.branches = ("cls" if "cls" in mappings else "global", "mean")
         self.mappings = mappings
         self.statistics = statistics or {}
         self.coefficients = coefficients
@@ -163,21 +163,22 @@ class AnalyticReadout:
     @classmethod
     def from_mapping_file(cls, path):
         with np.load(path, allow_pickle=False) as data:
+            branches = ("global", "mean") if "global_basis" in data else BRANCHES
             mappings = {
                 b: SpectralMapping(*(data[f"{b}_{key}"] for key in ("mean", "scale", "basis")))
-                for b in BRANCHES
+                for b in branches
             }
         return cls(mappings)
 
     def update(self, features, labels):
-        for branch in BRANCHES:
+        for branch in self.branches:
             extra = SufficientStatistics.from_rows(self.mappings[branch].project(features[branch]), labels)
             self.statistics[branch] = (self.statistics[branch].add(extra)
                                       if branch in self.statistics else extra)
 
     def solve(self, ridge_lambda=DEFAULT_RIDGE_LAMBDA):
         coefficients, audits, bias = {}, {}, 0.
-        for branch in BRANCHES:
+        for branch in self.branches:
             if branch not in self.statistics:
                 raise ValueError("Source sufficient statistics required before solving")
             weights, audits[branch] = self.statistics[branch].solve(ridge_lambda=ridge_lambda)
@@ -191,7 +192,7 @@ class AnalyticReadout:
     def predict_readouts(self, features):
         if self.coefficients is None:
             raise ValueError("Fit or import a coefficient head before prediction")
-        result = np.full(len(features['cls']), float(self.coefficients['bias']))
-        for branch in BRANCHES:
+        result = np.full(len(features["mean"]), float(self.coefficients["bias"]))
+        for branch in self.branches:
             result += np.einsum('nld,ld->n', features[branch], self.coefficients[branch])
         return result

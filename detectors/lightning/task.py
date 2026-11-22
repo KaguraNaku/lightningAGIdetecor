@@ -1,26 +1,35 @@
 """Fit, evaluate, and save Lightning's Ridge readout with the shared engine."""
+from functools import cached_property
 from pathlib import Path
 
 import numpy as np
 import torch
 
+from backbones.load_backbone import load_backbone, load_image_processor, resolve_backbone_revision
 from engine.resources import resolve_asset
-from models.clip import load_clip_vision
 
 from .detector import LightningDetector
-from .encoder import CLIP_MODEL_ID, CLIP_WIDTH, CLIPEncoder
+from .encoder import DEFAULT_BACKBONE_ID, DEFAULT_LAYERS, VisionEncoder
 from .model import (
-    BRANCHES, DEFAULT_RIDGE_LAMBDA, LAYERS, PROJECTION_RANK,
+    DEFAULT_RIDGE_LAMBDA, PROJECTION_RANK,
     AnalyticReadout, MappingAccumulator, SpectralMapping, SufficientStatistics,
     positive_ridge_lambda,
 )
 
 
+def _layer_indices(layers):
+    if (not isinstance(layers, (list, tuple)) or not layers
+            or any(type(index) is not int or index < 0 for index in layers)
+            or len(set(layers)) != len(layers)):
+        raise ValueError("Lightning layers must be a nonempty list of distinct zero-based block indices")
+    return tuple(layers)
+
+
 class LightningTask:
     """Fit a readout or restore a fitted checkpoint for evaluation.
 
-    A fresh fit accepts optional ridge_lambda and mapping_path. Set checkpoint
-    to continue from a previous fit's map and statistics.
+    A fresh fit selects a backbone and its layers. Set checkpoint to continue
+    with the saved encoder, maps and source statistics.
     """
 
     def __init__(self, settings, *, state=None):
@@ -28,7 +37,6 @@ class LightningTask:
         self.training_ids = set()
 
         # Build the runtime components on first use.
-        self.encoder_revision = None
         self.backbone = self.detector = self.processor = None
         self._processor_state = None
 
@@ -40,6 +48,9 @@ class LightningTask:
             self._start_fit(settings)
 
     def _start_fit(self, settings):
+        self.backbone_id = str(settings.get("backbone_id", DEFAULT_BACKBONE_ID))
+        self.encoder_revision = settings.get("revision")
+        self.layers = _layer_indices(settings.get("layers", DEFAULT_LAYERS))
         self.ridge_lambda = positive_ridge_lambda(settings.get("ridge_lambda", DEFAULT_RIDGE_LAMBDA))
         # Without a supplied mapping, fit() learns it from the source data.
         if "mapping_path" in settings:
@@ -61,88 +72,82 @@ class LightningTask:
                 raise ValueError(f"Expected a Lightning checkpoint trained on {dataset}")
         if settings.get("ridge_lambda", previous.ridge_lambda) != previous.ridge_lambda:
             raise ValueError("Continuation ridge_lambda must match the checkpoint")
+        if str(settings.get("backbone_id", previous.backbone_id)) != previous.backbone_id:
+            raise ValueError("Continuation backbone_id must match the checkpoint")
+        if _layer_indices(settings.get("layers", previous.layers)) != previous.layers:
+            raise ValueError("Continuation layers must match the checkpoint")
+        if "revision" in settings:
+            revision = resolve_backbone_revision(previous.backbone_id, settings["revision"])
+            if revision != previous.encoder_revision:
+                raise ValueError("Continuation revision must match the checkpoint")
         self.ridge_lambda = previous.ridge_lambda
         self.readout = previous.readout
         self.training_ids = set(previous.training_ids)
+        self.backbone_id = previous.backbone_id
         self.encoder_revision = previous.encoder_revision
+        self.layers = previous.layers
         self._processor_state = previous._processor_state
 
     def _check_mapping_shape(self, readout):
-        expected = (len(LAYERS), CLIP_WIDTH, PROJECTION_RANK)
+        width = readout.mappings["mean"].mean.shape[1]
+        expected = (len(self.layers), width, PROJECTION_RANK)
         if any(mapping.basis.shape != expected for mapping in readout.mappings.values()):
             raise ValueError(f"Both Lightning maps must have basis shape {expected}")
+        return expected[:2]
 
     def _restore_state(self, state):
-        if tuple(state.get("layers", ())) != LAYERS:
-            raise ValueError("Lightning checkpoint uses different CLIP layers")
+        self.layers = _layer_indices(state["layers"])
         self.ridge_lambda = positive_ridge_lambda(state.get("ridge_lambda"))
         encoder = state["encoder"]
-        if encoder["model_id"] != CLIP_MODEL_ID:
-            raise ValueError("Lightning uses the fixed CLIP-L/14 encoder")
+        self.backbone_id = encoder["model_id"]
         self.encoder_revision = encoder.get("revision")
         self._processor_state = state["processor"]
         ids = state["training_ids"]
         self.training_ids = set(ids)
-        mappings = {b: SpectralMapping(**self._numpy(state["mapping"][b])) for b in BRANCHES}
-        statistics = {b: SufficientStatistics.from_state(self._numpy(s))
-                      for b, s in state.get("statistics", {}).items()}
-        coefficients = self._numpy(state["coefficients"])
-        if set(statistics) != set(BRANCHES) or set(coefficients) != {*BRANCHES, "bias"}:
+        mappings = {branch: SpectralMapping(**mapping) for branch, mapping in state["mapping"].items()}
+        statistics = {branch: SufficientStatistics.from_state(stats)
+                      for branch, stats in state["statistics"].items()}
+        coefficients = {name: np.asarray(value) for name, value in state["coefficients"].items()}
+        readout = AnalyticReadout(mappings, statistics, coefficients)
+        feature_shape = self._check_mapping_shape(readout)
+        if set(statistics) != set(readout.branches) or set(coefficients) != {*readout.branches, "bias"}:
             raise ValueError("A fitted Lightning checkpoint must contain both complete readout branches")
-        width = len(LAYERS) * PROJECTION_RANK
+        width = len(self.layers) * PROJECTION_RANK
         if (len(ids) != len(self.training_ids)
                 or any(s.n != len(ids) or not 0 < s.sy < s.n
                        or s.g.shape != (width, width) or s.h.shape != (width,) or s.sz.shape != (width,)
                        or not all(np.isfinite(a).all() for a in (s.g, s.h, s.sz))
                        for s in statistics.values())):
             raise ValueError("Lightning source statistics do not match its training IDs or projected width")
-        if (any(np.shape(coefficients[b]) != (len(LAYERS), CLIP_WIDTH) for b in BRANCHES)
+        if (any(coefficients[branch].shape != feature_shape for branch in readout.branches)
                 or np.shape(coefficients["bias"]) != ()
                 or not all(np.isfinite(a).all() for a in coefficients.values())):
             raise ValueError("Invalid Lightning coefficients")
-        self.readout = AnalyticReadout(mappings, statistics, coefficients)
-        self._check_mapping_shape(self.readout)
+        self.readout = readout
 
-    @staticmethod
-    def _numpy(value):
-        if isinstance(value, torch.Tensor):
-            return value.detach().cpu().numpy()
-        if isinstance(value, dict):
-            return {k: LightningTask._numpy(v) for k, v in value.items()}
-        return value
-
-    @staticmethod
-    def _tensors(value):
-        if isinstance(value, np.ndarray):
-            return torch.from_numpy(value.copy())
-        if isinstance(value, dict):
-            return {k: LightningTask._tensors(v) for k, v in value.items()}
-        return value
-
-    def _clip_revision(self):
-        if self.encoder_revision is None:
-            from huggingface_hub import resolve_revision
-
-            self.encoder_revision = resolve_revision(CLIP_MODEL_ID).resolved
+    @cached_property
+    def _resolved_revision(self):
+        self.encoder_revision = resolve_backbone_revision(self.backbone_id, self.encoder_revision)
         return self.encoder_revision
 
     def _get_processor(self):
         if self.processor is None:
-            from transformers import CLIPImageProcessorPil
-            if self._processor_state is not None:
-                self.processor = CLIPImageProcessorPil.from_dict(self._processor_state)
-            else:
-                self.processor = CLIPImageProcessorPil.from_pretrained(
-                    CLIP_MODEL_ID, revision=self._clip_revision()
-                )
+            self.processor = load_image_processor(
+                self.backbone_id, revision=self._resolved_revision, state=self._processor_state,
+            )
+            if self._processor_state is None:
                 self._processor_state = self.processor.to_dict()
         return self.processor
 
     def _get_backbone(self, device):
         if self.backbone is None:
-            self.backbone = CLIPEncoder(
-                load_clip_vision(CLIP_MODEL_ID, revision=self._clip_revision())
-            ).eval()
+            vision = load_backbone(self.backbone_id, revision=self._resolved_revision)
+            backbone = VisionEncoder(vision, self.layers).eval()
+            if self.readout is not None:
+                width = self.readout.mappings["mean"].mean.shape[1]
+                if width != backbone.width or self.readout.branches != (backbone.global_branch, "mean"):
+                    raise ValueError("Lightning mapping does not match the backbone's width or readout branches")
+            self.backbone = backbone
         if next(self.backbone.parameters()).device != device:
             self.backbone.to(device)
         return self.backbone
@@ -156,7 +161,7 @@ class LightningTask:
         backbone = self._get_backbone(images.device)
         with runtime.autocast():
             features = backbone(images)
-        return {b: features[b].float().cpu().numpy() for b in BRANCHES}
+        return {branch: values.float().cpu().numpy() for branch, values in features.items()}
 
     def fit(self, loader, *, validation_loader=None, runtime, settings, output_dir):
         if "ridge_lambda" in settings:
@@ -166,12 +171,16 @@ class LightningTask:
         if any(settings.get(key) is not None for key in ("epochs", "patience", "monitor")):
             raise ValueError("Lightning fits analytically without epochs or validation-based selection")
         if self.readout is None:
-            accumulators = {b: MappingAccumulator() for b in BRANCHES}
+            accumulators = {}
             for batch in loader:
                 features = self._readouts(batch, runtime)
+                if not accumulators:
+                    accumulators = {branch: MappingAccumulator() for branch in features}
                 labels = batch["labels"].cpu().numpy()
                 for branch, accumulator in accumulators.items():
                     accumulator.update(features[branch], labels)
+            if not accumulators:
+                raise ValueError("No successful source images")
             mappings = {b: accumulator.fit(PROJECTION_RANK)[0] for b, accumulator in accumulators.items()}
             readout = AnalyticReadout(mappings)
         else:
@@ -222,12 +231,14 @@ class LightningTask:
         if self._processor_state is None:
             self._get_processor()
         return {
-            "layers": list(LAYERS),
-            "encoder": {"model_id": CLIP_MODEL_ID, "revision": self.encoder_revision},
+            "layers": list(self.layers),
+            "encoder": {"model_id": self.backbone_id, "revision": self.encoder_revision},
             "processor": self._processor_state,
-            "mapping": self._tensors({b: m.state_dict() for b, m in self.readout.mappings.items()}),
-            "statistics": self._tensors({b: s.state_dict() for b, s in self.readout.statistics.items()}),
-            "coefficients": self._tensors(self.readout.coefficients),
+            "mapping": {branch: {name: torch.tensor(value) for name, value in mapping.state_dict().items()}
+                        for branch, mapping in self.readout.mappings.items()},
+            "statistics": {branch: {name: torch.tensor(value) for name, value in stats.state_dict().items()}
+                           for branch, stats in self.readout.statistics.items()},
+            "coefficients": {name: torch.tensor(value) for name, value in self.readout.coefficients.items()},
             "ridge_lambda": self.ridge_lambda,
             "training_ids": sorted(self.training_ids),
         }

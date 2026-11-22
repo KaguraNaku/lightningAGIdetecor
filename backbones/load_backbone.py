@@ -1,6 +1,7 @@
 """One selected-backbone loader, with no dependency imports at module load."""
 
 from importlib import import_module
+from pathlib import Path
 
 from .registry import LOADERS
 
@@ -35,3 +36,28 @@ _DEFAULT_LOADER = BackboneLoader()
 def load_backbone(model_id, component="vision", *, model_type=None, **kwargs):
     """Compatibility API; imports and constructs only the selected component."""
     return _DEFAULT_LOADER.load(model_id, component, model_type=model_type, **kwargs)
+
+
+def resolve_backbone_revision(model_id, revision=None):
+    """Pin Hub files to one snapshot. Local model directories already select the files."""
+    if Path(model_id).expanduser().is_dir():
+        return None
+    from huggingface_hub import resolve_revision
+
+    return resolve_revision(model_id, revision=revision).resolved
+
+
+def load_image_processor(model_id, *, revision=None, state=None):
+    """Select the pretrained processor or restore its recorded configuration."""
+    import transformers
+
+    if state is None:
+        return transformers.AutoImageProcessor.from_pretrained(model_id, revision=revision, backend="pil")
+
+    from transformers.image_processing_utils import BaseImageProcessor
+
+    name = state["image_processor_type"]
+    processor_class = getattr(transformers, name, None)
+    if not isinstance(processor_class, type) or not issubclass(processor_class, BaseImageProcessor):
+        raise ValueError(f"Unknown image processor in checkpoint: {name}")
+    return processor_class.from_dict(state)
