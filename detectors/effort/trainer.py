@@ -5,14 +5,12 @@ import json
 import logging
 import math
 from pathlib import Path
-import random
 
-import numpy as np
 import torch
 from torch.nn import functional as F
 
 from data.manifest import sha256
-from engine.continuity import StageContinuation
+from engine.continuity import StageContinuation, TrainingSnapshot
 from engine.evaluate import coverage, evaluate
 from engine.runtime import atomic_save
 from engine.training_timing import timed_fit, training_region, host_region, validation_meter
@@ -89,7 +87,9 @@ class EffortTrainer:
             weight_decay=decay, amsgrad=False,
         )
         scaler = torch.amp.GradScaler("cuda", enabled=runtime.precision == "fp16")
+        training_snapshot = TrainingSnapshot(settings, loader, validation_loader, runtime)
         continuation = StageContinuation(settings, loader, validation_loader, runtime)
+        training_snapshot.restore(self, optimizer, scaler)
         continuation.restore(self, optimizer, scaler)
         root = Path(output_dir)
         root.mkdir(parents=True, exist_ok=True)
@@ -121,8 +121,8 @@ class EffortTrainer:
             "learning_rate": lr, "weight_decay": decay, "eps": 1e-8,
             "batch_size": loader.batch_size, "microbatch_size": microbatch,
             "selection": selection,
-            "exact_training_resume_supported": continuation.enabled,
-            "resume_scope": "selected epoch at disjoint stage boundary" if continuation.enabled else None,
+            "exact_training_resume_supported": training_snapshot.resumable,
+            "resume_scope": "selected epoch" if training_snapshot.resumable else None,
         })
         best, stale, best_epoch = -math.inf, 0, None
         history = []
@@ -196,15 +196,9 @@ class EffortTrainer:
                 self._timing.epochs += 1
             history.append(record)
             atomic_save(root / "history.json", history)
-            numpy_rng = np.random.get_state()
             checkpoint = {
-                "state_dict": self.model.state_dict(), "optimizer": optimizer.state_dict(),
-                "scaler": scaler.state_dict(), "epoch": epoch, "record": record,
-                "protocol": protocol, "torch_rng": torch.get_rng_state(),
-                "python_rng": random.getstate(),
-                "numpy_rng": [numpy_rng[0], numpy_rng[1].tolist(), *numpy_rng[2:]],
-                "cuda_rng": torch.cuda.get_rng_state_all() if runtime.device.type == "cuda" else [],
-                "loader_rng": loader.generator.get_state() if loader.generator is not None else None,
+                **training_snapshot.capture(self, optimizer, scaler),
+                "epoch": epoch, "record": record, "protocol": protocol,
             }
             continuation.snapshot(checkpoint, epoch, train_dir)
             with host_region(self, "checkpoint"):
@@ -222,6 +216,7 @@ class EffortTrainer:
             self.model.eval()
         return {
             "epochs": len(history), "best_epoch": best_epoch, "monitor": monitor, "best_validation_auc": best,
+            "training_checkpoint_id": training_snapshot.id if training_snapshot.resumable else None,
             **({"best_validation_video_auc": best} if monitor == "video.auc" else {"best_validation_image_auc": best}),
             "stopped_early": len(history) < epochs, "history": "history.json",
             "selection": selection,

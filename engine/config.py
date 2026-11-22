@@ -76,12 +76,7 @@ def read_experiment(path, *, require_fit=True, variables=None, env_file=None,
     if public:
         ModelRegistry.validate_factory(model)
     if require_fit and checkpoint is not None:
-        if ModelRegistry.method_for(model) != "lightning":
-            raise ValueError("--checkpoint during fitting is for Lightning continuation")
-        reference = model.get("checkpoint")
-        model["checkpoint"] = {"path": str(Path(checkpoint).expanduser().resolve())}
-        if isinstance(reference, dict) and "dataset" in reference:
-            model["checkpoint"]["dataset"] = reference["dataset"]
+        config.setdefault("fit", {})["checkpoint"] = str(Path(checkpoint).expanduser().resolve())
     factory = model.get("factory", "")
     if require_fit and (
         not isinstance(factory, str)
@@ -166,7 +161,8 @@ def read_experiment(path, *, require_fit=True, variables=None, env_file=None,
                 fit.setdefault("monitor", "video.auc")
             elif media_type == "image":
                 fit.setdefault("monitor", "image.auc")
-        if (public and ModelRegistry.method_for(model) == "prodet" and not fit.get("ufd")
+        if (public and ModelRegistry.method_for(model) == "prodet"
+                and "checkpoint" not in fit and not fit.get("ufd")
                 and model.get("data_profile") != "specialized_quadruples"):
             raise ValueError("ProDet training requires a manifest with the author quadruple bindings")
     evaluation = config.setdefault("evaluation", {})
@@ -223,9 +219,14 @@ def read_experiment(path, *, require_fit=True, variables=None, env_file=None,
         if "$" not in item["manifest"]:
             item["manifest"] = str(resources.path(item["manifest"], must_exist=False))
     if require_fit:
-        config["model"] = resources.model_settings(config["model"])
         fit = config["fit"]
-        if "ufd" in fit:
+        if "checkpoint" in fit:
+            fit["checkpoint"] = str(resources.path(fit["checkpoint"]))
+            if "training_neighbors" in model:
+                model.update(resources.model_settings({"training_neighbors": model["training_neighbors"]}))
+        else:
+            config["model"] = resources.model_settings(config["model"])
+        if "ufd" in fit and "checkpoint" not in fit:
             if not isinstance(fit["ufd"], dict):
                 raise ValueError("fit.ufd must be a mapping")
             fit["ufd"] = resources.model_settings(fit["ufd"])

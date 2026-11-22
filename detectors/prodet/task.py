@@ -136,7 +136,6 @@ class ProDetTask(ImageClassificationTask):
         origin = {
             **reference_for("prodet"),
             "source_only_selection": True,
-            "exact_optimizer_rng_resume_supported": False,
             "full_experiment_reproduction": False,
             "data_recipe_note": "specialized_quadruples executes the author SBIPlusV2 four-domain recipe;native_entrypoint is historical binary compatibility",
         }
@@ -169,6 +168,23 @@ class ProDetTask(ImageClassificationTask):
             elif not same_metadata(requested, saved):
                 raise ValueError("ProDet requested data bindings differ from saved Task")
         return deepcopy(construction), deepcopy(preprocessing), deepcopy(origin), weights
+
+    def bind_resume_input(self, settings):
+        """Apply the selected training input's neighbor sidecar to a restored Task."""
+        profile = self.construction["data_profile"]
+        if settings.get("data_profile", profile) != profile:
+            raise ValueError("ProDet continuation requires the checkpoint's data_profile")
+        neighbors = settings.get("training_neighbors")
+        if neighbors is None:
+            if profile == "specialized_quadruples":
+                raise ValueError("ProDet continuation requires training_neighbors for the selected training input")
+            return {}
+        if isinstance(neighbors, str):
+            neighbors = neighbor_identity(neighbors)
+        construction = {**self.construction, "training_neighbors": deepcopy(neighbors)}
+        self.validate_metadata(construction, self.preprocessing, self.origin)
+        self.construction = construction
+        return {"training_neighbors": deepcopy(neighbors)}
 
     @staticmethod
     def _initialize_model(settings, recipe, origin):

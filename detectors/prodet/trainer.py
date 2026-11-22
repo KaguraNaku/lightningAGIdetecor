@@ -68,7 +68,7 @@ class ProDetTrainer(ImageClassificationTrainer):
             or state["native_epoch"] < -1
         ):
             raise ValueError(
-                "Invalid ProDet selected epoch state;not an optimizer/RNG resume"
+                "Invalid ProDet training epoch state"
             )
         self.native_epoch = state["native_epoch"]
 
@@ -173,7 +173,7 @@ class ProDetTrainer(ImageClassificationTrainer):
     def fit(self, loader, *, validation_loader, runtime, settings, output_dir):
         if self.native_epoch != -1:
             raise ValueError(
-                "Use a fresh ProDet Trainer for a new fit;exact optimizer/RNG resume is unsupported"
+                "Create a fresh ProDet Trainer for each fit"
             )
         if runtime.device.type not in {"cpu", "cuda"} or runtime.precision != "fp32":
             raise ValueError(
@@ -205,7 +205,6 @@ class ProDetTrainer(ImageClassificationTrainer):
                 "native_epochs": "zero-based0..20 inclusive21 by default",
                 "activation_transport": "native CUDA autograd;no retained CPU audit tensor files",
                 "source_only_selection": True,
-                "exact_training_resume_supported": False,
             })
             return super().fit(
                 loader, validation_loader=validation_loader, runtime=runtime,
@@ -249,7 +248,6 @@ class ProDetTrainer(ImageClassificationTrainer):
             "train": loader.dataset.selection_receipt(),
             "validation": validation_loader.dataset.selection_receipt(),
             "native_epochs": "zero-based0..20 inclusive21 by default",
-            "exact_training_resume_supported": False,
             "logical_saved_bytes_per_full_batch": logical,
             "conservative_retained_run_bytes": required,
             "saved_activation_budget_bytes": self.activation_budget,

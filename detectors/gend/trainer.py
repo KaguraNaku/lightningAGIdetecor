@@ -1,5 +1,4 @@
 """Method-owned AdamW, batch-coupled loss and step-wise cyclic scheduling."""
-from pathlib import Path
 import torch
 from detectors._shared.trainer import ImageClassificationTrainer
 from .loss import GenDLoss
@@ -61,20 +60,18 @@ class GenDTrainer(ImageClassificationTrainer):
         if self.steps_per_epoch < 1 or len(loader.dataset) % loader.batch_size == 1:
             raise ValueError("GenD cannot silently drop or train a singleton uniformity batch")
         self.parent_schedule = None
-        stage = settings.get("continuation", {})
-        if stage.get("stage_index", 0) > 0:
-            parent = torch.load(Path(stage["previous_best"]["path"]), map_location="cpu", weights_only=True, mmap=True)
-            method = parent.get("method_state") or {}
-            if method.get("profile") != "gend-author-ln-l2-ua":
-                raise ValueError("Cannot continue a historical CE-only chain as full GenD")
-            if method.get("gradient_cache") != self.gradient_cache_policy:
-                raise ValueError("GenD gradient-cache execution policy changed at a stage boundary")
-            self.parent_schedule = method["schedule_spec"]
-            del parent
         report = super().fit(loader, **kwargs)
         if self.gradient_cache is not None:
             report["gradient_cache"] = self.gradient_cache_policy
         return report
+
+    def prepare_resume(self, parent):
+        method = parent.get("method_state") or {}
+        if method.get("profile") != "gend-author-ln-l2-ua":
+            raise ValueError("GenD requires a checkpoint with its author scheduler state")
+        if method.get("gradient_cache") != self.gradient_cache_policy:
+            raise ValueError("GenD gradient-cache execution policy changed")
+        self.parent_schedule = method["schedule_spec"]
 
     def build_optimizer(self, settings):
         if settings.get("optimizer", "adamw") != "adamw" or settings.get("weight_decay", 0.) != 0.:

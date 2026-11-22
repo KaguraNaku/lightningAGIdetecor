@@ -246,7 +246,7 @@ def main(argv=None):
             "--log-level", choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
         )
         command.add_argument("--checkpoint", type=Path, required=name == "evaluate",
-            help="Fitted model to evaluate" if name == "evaluate" else "Continue fitting a Lightning model")
+            help="Fitted model to evaluate" if name == "evaluate" else "Continue from a fitted model.pth")
         if name == "check":
             command.add_argument("--batches", type=int, default=0,
                 help="Also initialize the selected Task and decode this many real batches per input on CPU; no model forward or training")

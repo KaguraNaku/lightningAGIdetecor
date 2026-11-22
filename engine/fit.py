@@ -76,6 +76,8 @@ def _continue_ufd_detector(reference, expected_factory):
 def create_training_task(config):
     """Use the native task for every fit and apply UFD settings at the engine boundary."""
     model, settings = config["model"], config["fit"]
+    if settings.get("checkpoint") is not None:
+        return _resume_training_task(config)
     legacy = ModelRegistry.LEGACY_UFD_FACTORIES.get(model["factory"])
     policy = settings.get("ufd")
     if legacy is None and policy is None:
@@ -127,6 +129,40 @@ def create_training_task(config):
     return task
 
 
+def _resume_training_task(config):
+    model, settings = config["model"], config["fit"]
+    path = Path(settings["checkpoint"])
+    selected = ModelRegistry.method_for(model)
+    if selected == "lightning":
+        reference = {"path": str(path)}
+        configured = model.get("checkpoint")
+        if isinstance(configured, dict) and "dataset" in configured:
+            reference["dataset"] = configured["dataset"]
+        config["model"] = {"factory": model["factory"], "checkpoint": reference}
+        return create_task(config["model"])
+    if settings.get("continuation") is not None:
+        raise ValueError("Choose --checkpoint or the explicit fit.continuation settings")
+    saved = read_model_checkpoint(path)
+    if selected != ModelRegistry.method_for(saved["model"]):
+        raise ValueError("Checkpoint belongs to a different detector")
+    if "training_state" not in saved:
+        raise ValueError("This model.pth does not record a resumable training state")
+    source = config["inputs"][settings["input"]]["dataset"]
+    prior_sources = {item["dataset"] for item in saved["provenance"].get("inputs", {}).values()
+                     if item.get("split") == "train"}
+    if prior_sources and prior_sources != {source}:
+        raise ValueError("Resume on the same dataset. Use fit.ufd for FF++ to UFD initialization.")
+    saved_model, state = unpack_task_state(saved["model"], saved["task"])
+    task = create_task(saved_model, state=state)
+    if (bind := getattr(task, "bind_resume_input", None)) is not None:
+        saved_model = {**saved_model, **bind(model)}
+    if "UFD_adaptation" not in task.origin:
+        settings.pop("ufd", None)
+    config["model"] = saved_model
+    settings["resume_state"] = {**saved["training_state"], "path": str(path.parent / "best.pth")}
+    return task
+
+
 def fit(task, loader, *, validation_loader=None, runtime, config, output_dir, provenance):
     fit_started = time.perf_counter()
     options = {}
@@ -138,6 +174,7 @@ def fit(task, loader, *, validation_loader=None, runtime, config, output_dir, pr
     )
     if config["fit"].get("ufd") is not None:
         report = {**report, "adaptation": deepcopy(task.origin["UFD_adaptation"])}
+    checkpoint_id = report.pop("training_checkpoint_id", None)
     export_started = time.perf_counter()
     checkpoint = {
         "version": 1,
@@ -150,6 +187,8 @@ def fit(task, loader, *, validation_loader=None, runtime, config, output_dir, pr
         "provenance": provenance,
         "fit_report": report,
     }
+    if checkpoint_id is not None:
+        checkpoint["training_state"] = {"id": checkpoint_id, "epoch": report["best_epoch"]}
     path = Path(output_dir) / "model.pth"
     atomic_save(path, checkpoint, torch_format=True)
     from engine.training_timing import update_export_timing
@@ -211,11 +250,16 @@ class CheckpointReference:
         return {"path": str(self.path), "sha256": sha256(self.path)}
 
 
-def restore(path):
+def read_model_checkpoint(path):
     checkpoint = read_checkpoint(path)
     if (
         checkpoint.get("version") != 1
         or checkpoint.get("score", {}).get("direction") != "higher_is_fake"
     ):
         raise ValueError("Unsupported checkpoint version or score direction")
+    return checkpoint
+
+
+def restore(path):
+    checkpoint = read_model_checkpoint(path)
     return create_task(checkpoint["model"], state=checkpoint["task"]), checkpoint

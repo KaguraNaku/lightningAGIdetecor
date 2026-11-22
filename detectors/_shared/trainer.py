@@ -12,15 +12,13 @@ import logging
 import math
 import os
 from pathlib import Path
-import random
 import tempfile
 
-import numpy as np
 import torch
 from torch import nn
 
 from data.manifest import sha256
-from engine.continuity import StageContinuation
+from engine.continuity import StageContinuation, TrainingSnapshot
 from engine.evaluate import coverage, evaluate
 from engine.runtime import atomic_save
 from engine.training_timing import timed_fit, training_region, host_region, validation_meter
@@ -265,9 +263,15 @@ class ImageClassificationTrainer:
         delta = number(settings, "min_delta", 0.0)
         self.model.to(runtime.device)
         self.objective.to(runtime.device)
+        checkpoint = TrainingSnapshot(settings, loader, validation_loader, runtime)
+        continuation = StageContinuation(settings, loader, validation_loader, runtime)
+        parent = checkpoint.parent or continuation.parent
+        if parent is not None and (prepare := getattr(self, "prepare_resume", None)) is not None:
+            prepare(parent)
+        del parent
         optimizer = self.build_optimizer(settings)
         scaler = torch.amp.GradScaler("cuda", enabled=runtime.precision == "fp16")
-        continuation = StageContinuation(settings, loader, validation_loader, runtime)
+        checkpoint.restore(self, optimizer, scaler)
         continuation.restore(self, optimizer, scaler)
         output = Path(output_dir)
         output.mkdir(parents=True, exist_ok=True)
@@ -312,8 +316,8 @@ class ImageClassificationTrainer:
                 "float32_matmul_precision": torch.get_float32_matmul_precision(),
                 "cudnn_allow_tf32": torch.backends.cudnn.allow_tf32,
                 "matmul_allow_tf32": torch.backends.cuda.matmul.allow_tf32,
-                "exact_training_resume_supported": continuation.enabled,
-                "resume_scope": "selected epoch at disjoint stage boundary" if continuation.enabled else None,
+                "exact_training_resume_supported": checkpoint.resumable,
+                "resume_scope": "selected epoch" if checkpoint.resumable else None,
             },
         )
         history, stale, best, best_epoch = [], 0, -math.inf, None
@@ -363,26 +367,12 @@ class ImageClassificationTrainer:
                 self._timing.epochs += 1
             history.append(record)
             atomic_save(output / "history.json", history)
-            numpy_rng = np.random.get_state()
             snapshot = {
-                "state_dict": self.model.state_dict(),
-                "optimizer": optimizer.state_dict(),
-                "objective": self.objective.state_dict(),
-                "scaler": scaler.state_dict(),
+                **checkpoint.capture(self, optimizer, scaler),
                 "epoch": epoch,
                 "record": record,
                 "protocol": protocol,
-                "torch_rng": torch.get_rng_state(),
-                "python_rng": random.getstate(),
-                "numpy_rng": [numpy_rng[0], numpy_rng[1].tolist(), *numpy_rng[2:]],
-                "cuda_rng": torch.cuda.get_rng_state_all()
-                if runtime.device.type == "cuda"
-                else [],
-                "loader_rng": loader.generator.get_state(),
             }
-            method_state = self.method_state_dict()
-            if method_state is not None:
-                snapshot["method_state"] = method_state
             continuation.snapshot(snapshot, epoch, training)
             with host_region(self, "checkpoint"):
                 atomic_save(output / "last.pth", snapshot, torch_format=True)
@@ -406,6 +396,7 @@ class ImageClassificationTrainer:
         return {
             "epochs": len(history),
             "best_epoch": best_epoch,
+            "training_checkpoint_id": checkpoint.id if checkpoint.resumable else None,
             "best_validation_value": best,
             "monitor": monitor,
             "stopped_early": len(history) < epochs,
