@@ -48,9 +48,10 @@ class ModelRegistry:
 
     @classmethod
     def default_config(cls, name):
-        from pathlib import Path
+        from configs import DEFAULT_CONFIG
+
         cls.get(name)
-        return Path(__file__).resolve().parents[1] / 'configs' / 'experiments' / (name + '_ffpp.yaml')
+        return DEFAULT_CONFIG
 
     @classmethod
     def describe(cls):

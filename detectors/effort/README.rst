@@ -22,7 +22,7 @@ From the repository root::
     uv run python engine.py prepare-data --dataset FaceForensics++ --split train --frames-per-video 8
     uv run python engine.py prepare-data --dataset FaceForensics++ --split val --frames-per-video 32
     uv run python engine.py prepare-data --dataset Celeb-DF-v2 --split test --frames-per-video 32
-    uv run python engine.py run --config configs/experiments/effort_ffpp.yaml
+    uv run python engine.py run --model effort
 
 Training uses the author's Albumentations 1.3.1 augmentation composition, Adam
 (lr 0.0002, betas 0.9/0.999, eps 1e-8, weight decay 0.0005), and only trains
@@ -58,7 +58,7 @@ Convert a checkpoint once, then use the shared evaluation entry point::
         --output /absolute/path/to/new/remake-effort.pth \
         --local-files-only
     uv run python engine.py evaluate \
-        --config configs/experiments/effort_ffpp.yaml \
+        --model effort \
         --checkpoint /absolute/path/to/new/remake-effort.pth
 
 Conversion supports a raw author state_dict or a training envelope containing

@@ -37,9 +37,10 @@ def coverage(dataset, successful_ids, output_dir):
 def evaluate(task, loader, *, runtime, settings, output_dir, timing=None):
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
+    media_type = getattr(loader, "media_type", None)
     accumulator = MetricAccumulator(
         threshold=settings["threshold"],
-        video_aggregation=settings["video_aggregation"],
+        video_aggregation="none" if media_type == "image" else settings["video_aggregation"],
         group_by=settings["group_by"],
         prediction_unit=getattr(task, "prediction_unit", "image"),
     )
@@ -94,6 +95,9 @@ def evaluate(task, loader, *, runtime, settings, output_dir, timing=None):
         "coverage": coverage(loader.dataset, seen, output_dir),
         **accumulator.result(),
     }
+    if media_type is not None:
+        unit = "video" if report.get("video") is not None else accumulator.prediction_unit
+        report["primary_metric"] = f"{unit}.auc"
     os.replace(temporary, output_dir / "predictions.jsonl")
     atomic_save(output_dir / "metrics.json", report)
     logger.info(

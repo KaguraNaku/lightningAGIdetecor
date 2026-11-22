@@ -38,6 +38,9 @@ class ManifestDataset(Dataset):
         read_metadata(manifest, self.header)
         self.settings = config.dataset(self.header["dataset"])
         self.root = self.settings["root"]
+        self.media_type = config.media_type(self.header["dataset"])
+        if self.media_type is None:
+            self.media_type = self.header["settings"].get("media_type")
         # Decoding settings are frozen in the manifest, not taken from a newer config.
         self.image_column = self.header["settings"].get("image_column", "image")
         self._pid = os.getpid()

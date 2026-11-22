@@ -170,6 +170,9 @@ def create_input_loader(
     sampler_factory=None,
 ):
     dataset = create_input_dataset(settings, config)
+    media_type = getattr(dataset, "media_type", None)
+    if media_type == "video" and any(not row.video_id for row in dataset.records):
+        raise ValueError("Video datasets require video_id for every manifest row")
     if dataset_adapter is not None:
         dataset = dataset_adapter(dataset)
     options = {
@@ -194,9 +197,11 @@ def create_input_loader(
         if sampler_factory is not None
         else None
     )
-    return create_loader(
+    loader = create_loader(
         dataset, processor, collate_fn=collate_fn, sampler=sampler, seed=seed, **options
     )
+    loader.media_type = media_type
+    return loader
 
 
 def create_experiment_loader(

@@ -5,6 +5,7 @@ remake manifest's relative POSIX paths. No image generation or source discovery
 occurs here. The declared manifest order replaces upstream dataset discovery.
 """
 
+from collections import Counter
 from copy import deepcopy
 from dataclasses import replace
 import hashlib
@@ -24,23 +25,24 @@ def neighbor_identity(path):
 
 
 class ProDetSourcePreparer:
-    """Bind train8 images/landmarks and build train-only landmark neighbors.
+    """Bind source training images and build train-only landmark neighbors.
 
     Uses DeepfakeBench's flattened-float32 landmark KDTree / ordered nearest100
     recipe. The original all-split pickle is deliberately not used: every BI
-    foreground must belong to the same frozen train8 manifest. This is recorded
+    foreground must belong to the same frozen training manifest. This is recorded
     as a source-isolation adaptation, not an identical author pickle replay.
     """
 
     def prepare(self, dataset, output):
         import numpy as np
         from scipy.spatial import KDTree
-        from engine.protocol import VideoSamplingPolicy
-
         if dataset.header["dataset"] != "FaceForensics++" or dataset.header["split"] != "train":
-            raise ValueError("ProDet preparation requires the FF++ train8 manifest")
-        sampling = VideoSamplingPolicy({"name": "train8_test32", "train_frames": 8,
-                                        "test_frames": 32}).validate(dataset.header, dataset.records)
+            raise ValueError("ProDet preparation requires an FF++ training manifest")
+        sampling = dict(dataset.header["sampling"])
+        counts = Counter(row.video_id for row in dataset.records)
+        if sampling.get("limit") is not None or not counts or not all(counts):
+            raise ValueError("ProDet needs a full source manifest with video IDs")
+        sampling["max_frames"] = max(counts.values())
         if dataset.header["settings"].get("compression") != "c23":
             raise ValueError("Author ProDet preparation requires FF++ c23")
         output = Path(output).expanduser().absolute()
@@ -105,7 +107,7 @@ class ProDetSourcePreparer:
         bound = SimpleNamespace(root=dataset.root, manifest_path=output, header=header, records=records)
         identity = write_neighbors(neighbors_path, dataset=bound, neighbors=raw, origin={
             "algorithm_source": "https://github.com/SCLBD/DeepfakeBench/blob/main/training/dataset/generate_xray_nearest.py",
-            "scope": "Only real members of the exact train8 manifest;no validation/test or extra frames",
+            "scope": "Real members of the bound training manifest",
             "author_original_pickle_reproduced": False,
             "numpy_version": np.__version__,
             "scipy_version": __import__("scipy").__version__,
@@ -197,7 +199,7 @@ def verify_file(root, identity):
 
 
 class ProDetSourcePlan:
-    """Selected train8/real_choice8/domain4 recipe over a complete manifest."""
+    """Ordered four-domain recipe over a complete training manifest."""
 
     def __init__(self, dataset, *, neighbors):
         if dataset.header["split"] != "train":

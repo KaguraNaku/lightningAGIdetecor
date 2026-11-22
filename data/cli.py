@@ -4,7 +4,7 @@ import argparse
 import json
 from pathlib import Path
 
-from .config import DataConfig
+from .config import DataConfig, frames_for
 from .dataset import ManifestDataset
 from .prepare import prepare_manifest
 from .manifest import read_metadata
@@ -21,7 +21,7 @@ def prepare_main(argv=None):
     parser.add_argument("--output", type=Path)
     parser.add_argument("--frames-per-video", type=int)
     parser.add_argument("--model", choices=["prodet"], help="Bind model-specific training data through the same entry point")
-    parser.add_argument("--source-manifest", type=Path, help="Existing train8 manifest for ProDet source preparation")
+    parser.add_argument("--source-manifest", type=Path, help="Existing training manifest for ProDet source preparation")
     parser.add_argument(
         "--limit",
         type=int,
@@ -31,19 +31,28 @@ def prepare_main(argv=None):
     config = DataConfig(args.config, args.env_file)
     if args.model == "prodet":
         if (args.dataset != "FaceForensics++" or args.split != "train"
-                or args.frames_per_video != 8 or args.limit is not None or args.source_manifest is None):
-            parser.error("ProDet preparation requires FF++ train, --frames-per-video 8, --source-manifest and no --limit")
+                or args.limit is not None or args.source_manifest is None):
+            parser.error("ProDet preparation requires FF++ train, --source-manifest and no --limit")
         from detectors.prodet.protocol import ProDetSourcePreparer
         dataset = ManifestDataset(args.source_manifest, config)
+        if (args.frames_per_video is not None
+                and args.frames_per_video != dataset.header["sampling"].get("frames_per_video")):
+            parser.error("--frames-per-video must match the source manifest")
         output = args.output or config.manifest_dir() / "FaceForensics++-train-prodet-bindings.jsonl"
         print(json.dumps(ProDetSourcePreparer().prepare(dataset, output), indent=2))
         return
     if args.source_manifest is not None:
         parser.error("--source-manifest requires --model prodet")
+    media_type = config.media_type(args.dataset)
+    frame_count = args.frames_per_video
+    if media_type == "image" and frame_count is not None:
+        parser.error("--frames-per-video applies to video datasets")
+    if frame_count is None and media_type == "video":
+        frame_count = frames_for(args.split, config.settings.get("video_sampling", {}))
     suffix = f"-smoke-{args.limit}" if args.limit else ""
-    frames = (
-        f"-frames-{args.frames_per_video}" if args.frames_per_video else "-all-frames"
-    )
+    frames = f"-frames-{frame_count}" if frame_count is not None else ""
+    if not frames and media_type != "image":
+        frames = "-all-frames"
     output = (
         args.output
         or config.manifest_dir() / f"{args.dataset}-{args.split}{frames}{suffix}.jsonl"
@@ -53,7 +62,7 @@ def prepare_main(argv=None):
         args.dataset,
         args.split,
         output,
-        frames_per_video=args.frames_per_video,
+        frames_per_video=frame_count,
         limit=args.limit,
     )
     report = {"manifest": str(output), "samples": count}

@@ -23,7 +23,9 @@ def execute(
     overrides=None,
     model_name=None,
     training_input=None,
+    validation_input=None,
     evaluation_inputs=None,
+    public=False,
 ):
     import torch
     import yaml
@@ -47,19 +49,11 @@ def execute(
         create_run_dir,
     )
     started_clock = time.perf_counter()
-    config = read_experiment(config_path, require_fit=command != "evaluate", env_file=env_file)
-    if model_name is not None:
-        config["model"] = ModelRegistry.select(model_name, config.get("model", {}))
-    if training_input is not None:
-        if training_input not in config["inputs"] or config["inputs"][training_input]["split"] != "train":
-            raise ValueError("--train-input must name a configured source train input")
-        config["fit"]["input"] = training_input
-    if evaluation_inputs is not None:
-        if (not evaluation_inputs or len(set(evaluation_inputs)) != len(evaluation_inputs)
-                or any(name not in config["inputs"] or config["inputs"][name]["split"] == "train"
-                       for name in evaluation_inputs)):
-            raise ValueError("--test-inputs must name unique configured validation/test inputs")
-        config["evaluation"]["inputs"] = list(evaluation_inputs)
+    config = read_experiment(
+        config_path, require_fit=command != "evaluate", env_file=env_file, model_name=model_name,
+        training_input=training_input, validation_input=validation_input,
+        evaluation_inputs=evaluation_inputs, checkpoint=checkpoint, public=public,
+    )
     for key, value in (overrides or {}).items():
         if value is not None:
             config["runtime"][key] = value if key == "allow_tf32" else str(value)
@@ -87,7 +81,7 @@ def execute(
             yaml.safe_dump(config, sort_keys=False)
         )
         runtime = Runtime.create(config["runtime"], config["seed"])
-        data = DataConfig(datasets, env_file)
+        data = DataConfig.for_experiment(config_path, config, registry=datasets, env_file=env_file)
         status["dataset_registry_sha256"] = sha256(data.path)
         logger.info("Run directory: %s", directory)
         names = config["evaluation"]["inputs"] if command != "fit" else []
@@ -116,19 +110,11 @@ def execute(
         )
 
         def make_loader(name, stage="evaluation"):
-            from .protocol import VideoSamplingPolicy
-            policy = config.get("video_sampling")
-            def adapt(dataset):
-                if policy is not None:
-                    audit = VideoSamplingPolicy(policy).validate(dataset.header, dataset.records)
-                    status.setdefault("sampling", {})[name] = audit
-                adapter = dataset_adapter_for(task, stage)
-                return adapter(dataset) if adapter is not None else dataset
             loader = create_input_loader(
                 input_settings(config, name),
                 config=data,
                 collate_fn=collator_for(task, stage),
-                dataset_adapter=adapt,
+                dataset_adapter=dataset_adapter_for(task, stage),
                 sampler_factory=sampler_factory_for(task, stage),
                 seed=config["seed"],
             )
@@ -136,6 +122,8 @@ def execute(
                 "manifest_sha256": sha256(loader.dataset.manifest_path),
                 "dataset": loader.dataset.header["dataset"],
                 "split": loader.dataset.header["split"],
+                "media_type": loader.media_type,
+                "sampling": loader.dataset.header["sampling"],
                 "expected": len(loader.dataset),
             }
             atomic_save(directory / "run.json", status)
@@ -229,7 +217,7 @@ def main(argv=None):
     commands.add_parser("environment", help="Report installed dependency versions without model execution")
     importer = commands.add_parser("import-checkpoint", help="Wrap complete native weights for ordinary evaluate; no training")
     importer.add_argument("--model", choices=tuple(ModelRegistry.NATIVE_CLASSES))
-    importer.add_argument("--config", type=Path, help="Defaults to the selected model's maintained preset")
+    importer.add_argument("--config", type=Path, help="Defaults to configs/config.yaml")
     importer.add_argument("--env-file", type=Path)
     importer.add_argument("--input", required=True, type=Path, help="Original complete detector checkpoint")
     importer.add_argument("--output", required=True, type=Path, help="New engine checkpoint; existing files are preserved")
@@ -237,10 +225,12 @@ def main(argv=None):
     for name in ("fit", "evaluate", "run", "check"):
         command = commands.add_parser(name)
         command.add_argument(
-            "--config", type=Path, help="Experiment YAML; defaults to the selected model's maintained preset"
+            "--config", type=Path, help="Defaults to configs/config.yaml"
         )
         command.add_argument("--model", choices=tuple(spec.name for spec in ModelRegistry.SPECS))
-        command.add_argument("--train-input", help="Configured source train input")
+        if name != "evaluate":
+            command.add_argument("--train-input", help="Configured source train input")
+            command.add_argument("--validation-input", help="Configured source validation input")
         command.add_argument("--test-inputs", nargs="+", help="Configured val/test input names")
         command.add_argument("--datasets", type=Path, help="Dataset registry YAML")
         command.add_argument("--env-file", type=Path)
@@ -255,8 +245,8 @@ def main(argv=None):
         command.add_argument(
             "--log-level", choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
         )
-        if name == "evaluate":
-            command.add_argument("--checkpoint", type=Path, required=True)
+        command.add_argument("--checkpoint", type=Path, required=name == "evaluate",
+            help="Fitted model to evaluate" if name == "evaluate" else "Continue fitting a Lightning model")
         if name == "check":
             command.add_argument("--batches", type=int, default=0,
                 help="Also initialize the selected Task and decode this many real batches per input on CPU; no model forward or training")
@@ -283,32 +273,19 @@ def main(argv=None):
             parser.error('Specify --model or --config')
         args.config = ModelRegistry.default_config(args.model)
     try:
-        # The public CLI exposes only the nine supported factories. The low-level
-        # execute() API retains injectable tasks for isolated engine tests.
-        import yaml
-        declaration = yaml.safe_load(args.config.read_text())
-        if not isinstance(declaration, dict) or not isinstance(declaration.get('model'), dict):
-            raise ValueError('A supported model declaration is required')
-        ModelRegistry.validate_factory(declaration['model'])
         if args.command == "import-checkpoint":
             from .fit import CheckpointImporter
             converted = CheckpointImporter(args.config, model_name=args.model, env_file=args.env_file,
                 legacy_weight_mode=args.legacy_weight_mode).convert(args.input, args.output)
             print(converted)
             return
-        if args.command != "evaluate" and ModelRegistry.method_for(declaration["model"]) in ("gend", "forada", "prodet"):
-            from .protocol import VideoSamplingPolicy
-            VideoSamplingPolicy(declaration.get("video_sampling"))
-            fit_settings = declaration.get("fit")
-            ufd = isinstance(fit_settings, dict) and "ufd" in fit_settings
-            if (ModelRegistry.resolve_factory(declaration["model"].get("factory")) == ModelRegistry.get("prodet").factory
-                    and not ufd and declaration["model"].get("data_profile") != "specialized_quadruples"):
-                raise ValueError("New ProDet training requires author specialized_quadruples; legacy checkpoints remain evaluable")
         if args.command == "check":
             import json
             from .inspection import ExperimentInspector
             print(json.dumps(ExperimentInspector().inspect(args.config, datasets=args.datasets,
-                env_file=args.env_file, model=args.model, batches=args.batches), indent=2))
+                env_file=args.env_file, model=args.model, batches=args.batches,
+                training_input=args.train_input, validation_input=args.validation_input,
+                evaluation_inputs=args.test_inputs, checkpoint=args.checkpoint), indent=2))
             return
         directory = execute(
             args.command,
@@ -317,8 +294,10 @@ def main(argv=None):
             datasets=args.datasets,
             env_file=args.env_file,
             model_name=args.model,
-            training_input=args.train_input,
+            training_input=getattr(args, "train_input", None),
+            validation_input=getattr(args, "validation_input", None),
             evaluation_inputs=args.test_inputs,
+            public=True,
             overrides={
                 key: getattr(args, key)
                 for key in ("output_dir", "device", "precision", "allow_tf32", "log_level")

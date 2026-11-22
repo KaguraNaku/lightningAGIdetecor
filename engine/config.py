@@ -1,4 +1,4 @@
-"""Experiment policy and validation, separate from local dataset root resolution."""
+"""Resolve the shared config into the settings for one engine run."""
 
 from copy import deepcopy
 import math
@@ -7,26 +7,81 @@ import re
 
 import yaml
 
+from data.config import default_env_file, frames_for
+
 from .models import ModelRegistry
 from .resources import ResourceResolver
 
 
-def read_experiment(path, *, require_fit=True, variables=None, env_file=None):
+def _select_experiment(config, model_name, training_input, *, require_fit):
+    if model_name is None:
+        raise ValueError("Choose --model to use the shared config")
+    spec = ModelRegistry.get(model_name)
+    profile = config["models"][model_name]
+    fit = {**config.get("fit", {}), **profile.get("fit", {})}
+    if training_input is not None:
+        fit["input"] = training_input
+    source = config["inputs"].get(fit.get("input"), {})
+    model = {"factory": spec.factory, **profile.get("settings", {}),
+             **source.get("model_settings", {}).get(model_name, {})}
+    if require_fit and model_name in ModelRegistry.NATIVE_CLASSES and source.get("dataset") == "UniversalFakeDetect":
+        fit.setdefault("ufd", {"regime": "fresh_UFD"})
+
+    sampling = config.get("video_sampling", {})
+    stage_options = {
+        "train": {**config.get("train_loader", {}), **profile.get("train_loader", {})},
+        "val": profile.get("validation_loader", {}),
+        "test": profile.get("test_loader", {}),
+    }
+    inputs = {}
+    for name, item in config["inputs"].items():
+        item = {key: value for key, value in item.items() if key != "model_settings"}
+        manifest = item["manifest"]
+        if "{frames}" in manifest:
+            count = frames_for(item["split"], sampling)
+            if config["datasets"][item["dataset"]]["media_type"] != "video" or count is None:
+                raise ValueError(f"Input {name} requires a video dataset and a configured frame count")
+            manifest = manifest.replace("{frames}", str(count))
+        inputs[name] = {**stage_options[item["split"]], **item, "manifest": manifest}
+    return {
+        "version": config["version"], "seed": config["seed"],
+        "datasets": config["datasets"], "video_sampling": sampling,
+        "runtime": {**config.get("runtime", {}), **profile.get("runtime", {})},
+        "model": model, "fit": fit, "inputs": inputs,
+        "loader": {**config.get("loader", {}), **profile.get("loader", {})},
+        "evaluation": {**config.get("evaluation", {}), **profile.get("evaluation", {})},
+    }
+
+
+def read_experiment(path, *, require_fit=True, variables=None, env_file=None,
+                    model_name=None, training_input=None, validation_input=None,
+                    evaluation_inputs=None, checkpoint=None, public=False):
     with Path(path).open() as stream:
         config = yaml.safe_load(stream)
     if not isinstance(config, dict) or config.get("version") != 1:
         raise ValueError("Experiment must be a mapping with version: 1")
+    if "models" in config:
+        config = _select_experiment(config, model_name, training_input, require_fit=require_fit)
+        if env_file is None:
+            default_env = default_env_file()
+            if default_env.is_file():
+                env_file = default_env
     config = deepcopy(config)
-    if "video_sampling" in config:
-        from .protocol import VideoSamplingPolicy
-        VideoSamplingPolicy(config["video_sampling"])
     for section in ("model", "loader", "fit", "evaluation", "runtime"):
         if section in config and not isinstance(config[section], dict):
             raise ValueError(f"{section} must be a mapping")
     model = config.get("model", {})
-    if (config.get("model", {}).get("training_profile") in ("author_ln_l2_ua", "author_ffpp_8_32")
-            and "video_sampling" not in config):
-        raise ValueError("Author-method experiments require the strict train8_test32 manifest contract")
+    if model_name is not None:
+        config["model"] = model = ModelRegistry.select(model_name, model)
+    if public:
+        ModelRegistry.validate_factory(model)
+    if require_fit and checkpoint is not None:
+        if ModelRegistry.method_for(model) != "lightning":
+            raise ValueError("--checkpoint during fitting is for Lightning continuation")
+        reference = model.get("checkpoint")
+        model["checkpoint"] = {"path": str(Path(checkpoint).expanduser().resolve())}
+        if isinstance(reference, dict) and "dataset" in reference:
+            model["checkpoint"]["dataset"] = reference["dataset"]
     factory = model.get("factory", "")
     if require_fit and (
         not isinstance(factory, str)
@@ -81,6 +136,10 @@ def read_experiment(path, *, require_fit=True, variables=None, env_file=None):
                 raise ValueError(f"{name}.{key} must be a boolean")
     if require_fit:
         fit = config.setdefault("fit", {})
+        if training_input is not None:
+            fit["input"] = training_input
+        if validation_input is not None:
+            fit["validation_input"] = validation_input
         fit.setdefault("input", "calibration")
         if (
             not isinstance(fit["input"], str)
@@ -100,7 +159,21 @@ def read_experiment(path, *, require_fit=True, variables=None, env_file=None):
             or inputs[validation]["split"] != "val"
         ):
             raise ValueError("fit.validation_input must name a val input")
+        if validation is not None and ModelRegistry.method_for(model) in ModelRegistry.NATIVE_CLASSES:
+            dataset = inputs[validation]["dataset"]
+            media_type = config.get("datasets", {}).get(dataset, {}).get("media_type")
+            if media_type == "video":
+                fit.setdefault("monitor", "video.auc")
+            elif media_type == "image":
+                fit.setdefault("monitor", "image.auc")
+        if (public and ModelRegistry.method_for(model) == "prodet" and not fit.get("ufd")
+                and model.get("data_profile") != "specialized_quadruples"):
+            raise ValueError("ProDet training requires a manifest with the author quadruple bindings")
     evaluation = config.setdefault("evaluation", {})
+    if evaluation_inputs is not None:
+        if not evaluation_inputs:
+            raise ValueError("--test-inputs requires at least one input")
+        evaluation["inputs"] = list(evaluation_inputs)
     evaluation.setdefault(
         "inputs", [name for name, item in inputs.items() if item["split"] != "train"]
     )

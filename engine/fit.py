@@ -171,10 +171,8 @@ class CheckpointImporter:
         from .resources import ResourceResolver
 
         path = Path(config_path).expanduser().resolve(strict=True)
-        config = read_experiment(path, require_fit=False, env_file=env_file)
+        config = read_experiment(path, require_fit=False, env_file=env_file, model_name=model_name)
         model = dict(config["model"])
-        if model_name is not None:
-            model = ModelRegistry.select(model_name, model)
         ModelRegistry.validate_factory(model)
         native = {ModelRegistry.get(name).factory for name in ModelRegistry.NATIVE_CLASSES}
         if ModelRegistry.resolve_factory(model["factory"]) not in native:

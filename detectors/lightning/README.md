@@ -16,14 +16,14 @@ it does not retain a new per-image feature matrix. The FF++ source statistics
 are included once. Incremental source blocks inherit the selected parent head
 and its statistics without replaying old image IDs.
 
-Use `engine.py fit` with one of the three Lightning YAML presets under
-`configs/experiments/`. FF++ can fit its mapping from the source, or use the
-frozen paper mapping via `model.mapping_path`. A fresh UFD fit learns its own
-mapping. For incremental fitting, `model.checkpoint` points to the
-previous fit's `model.pth`. For continuation, declare only `factory` and
-`checkpoint` under `model`. The checkpoint supplies the backbone, layers,
-mapping and Ridge strength. The optional `dataset` field on the checkpoint
-reference checks its training source.
+Use `engine.py fit --model lightning` with the shared
+[`configs/config.yaml`](../../configs/config.yaml). Select the training and
+validation inputs with `--train-input` and `--validation-input`. A fresh fit
+learns its mapping from the selected source. For the paper's FF++ mapping,
+set `models.lightning.settings.mapping_path`.
+
+For continued fitting, pass the previous fit's `model.pth` with
+`--checkpoint`. It supplies the backbone, layers, mapping and Ridge strength.
 
 Edit [`config.py`](config.py) to change the backbone, layers, projection rank
 or Ridge strength for new fits. Use a Hugging Face ID or an absolute path to

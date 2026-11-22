@@ -18,11 +18,10 @@ draws remain CPU draws;CUDA copies alone are ported to the operand device.
 Data recipes require explicit wiring
 -----------------------------------
 
-The maintained ``configs/experiments/prodet_ffpp.yaml`` now selects
+The FF++ training input in ``configs/config.yaml`` selects
 ``specialized_quadruples``: the author's SBIPlusV2 data recipe. The previous
 ``native_entrypoint`` selected ordinary binary images; that historical recipe
-remains readable for checkpoint evaluation, but the public engine refuses new
-training with it. Existing results keep their original protocol identities.
+is used for whole-image UFD fitting. FF++ training uses the source bindings.
 
 The separately defined ``SBIPlusV2Dataset`` instead collates24 quadruples into
 96 images inreal/blend/BI/deepfake order,withoriginal float labels0/1/3/2.
@@ -39,7 +38,7 @@ do not flatten specialized domain
 labels to binary loss targets orsilently describe a wiring repair as untouched
 ``train.py`` behavior. The source epoch loop is0..20 inclusive21 epochs.
 
-Maintained author method with strict 8/32 sampling
+Author method with the default FF++ sampling
 ------------------------------------------------
 
 Reference: ``beautyremain/ProDet`` revision
@@ -261,9 +260,8 @@ explicit ``native_entrypoint`` or ``specialized_quadruples`` profile. It saves
 typed construction, preprocessing roles, probability semantics and the optional
 neighbor identity. Restoring complete Task weights needs no old initialization
 asset; conflicting recipe/preprocessing/profile metadata fails. The specialized
-training sidecar is opened only when preparing training data. The preset
-``configs/experiments/prodet_ffpp.yaml`` declares the intended quadruple wiring
-repair and placeholders for genuine source assets.
+training sidecar is opened only when preparing training data. The ProDet training input in ``configs/config.yaml`` declares the quadruple
+bindings and the neighbor sidecar.
 
 ``ProDetImageDataset`` owns filesystem OpenCV decoding for the generic entrypoint,
 validation and evaluation. The original decoder/getitem/augmentation/torchvision
@@ -351,7 +349,6 @@ landmarks, neighbor sidecar, optimizer or training loop is needed for importing.
 
     uv run python engine.py evaluate --model prodet \
       --checkpoint /absolute/prodet-author/model.pth \
-      --datasets configs/datasets.yaml --env-file .env \
       --test-inputs ffpp_test ufd_test
 
 The output uses the same engine checkpoint format and ordinary evaluation path

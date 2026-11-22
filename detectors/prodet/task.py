@@ -145,7 +145,7 @@ class ProDetTask(ImageClassificationTask):
                 "repository": "https://github.com/beautyremain/ProDet",
                 "revision": "050856249569f8ae6de4e847265f9d6e2139b3b2",
                 "data": "SBIPlusV2 real/blendfake/bifake/deepfake;24quadruples->96views",
-                "controls": "strict train8/test32;source-only validation;train-only nearest pool",
+                "controls": "source-only validation;train-only nearest pool",
                 "identical_paper_run_claimed": False,
             }
         self.validate_metadata(construction, preprocessing, origin)
@@ -236,10 +236,6 @@ class ProDetTask(ImageClassificationTask):
             stage == "train"
             and self.construction["data_profile"] == "specialized_quadruples"
         ):
-            if dataset.header["dataset"] == "FaceForensics++":
-                from engine.protocol import VideoSamplingPolicy
-                VideoSamplingPolicy({"name": "train8_test32", "train_frames": 8,
-                                     "test_frames": 32}).validate(dataset.header, dataset.records)
             if self.construction["training_neighbors"] is None:
                 raise ValueError(
                     "ProDet specialized training requires explicit training_neighbors"

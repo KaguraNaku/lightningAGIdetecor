@@ -1,0 +1,383 @@
+# Shared dataset catalog, sampling policy and detector training defaults.
+version: 1
+seed: 1024
+runtime:
+  device: cuda:0
+  precision: fp32
+  allow_tf32: false
+  log_level: INFO
+  output_dir: ../outputs
+
+video_sampling:
+  train_frames: 8
+  test_frames: 32  # Also used for validation.
+
+loader:
+  batch_size: 32
+  num_workers: 4
+  pin_memory: true
+  prefetch_factor: 2
+  persistent_workers: false
+  decode_error_patience: 1
+  shuffle: false
+
+train_loader:
+  shuffle: true
+
+evaluation:
+  inputs: [ffpp_test, ufd_test]
+  threshold: 0.5
+  video_aggregation: mean
+  group_by: [category]
+
+fit:
+  input: ffpp_train
+  validation_input: ffpp_val
+
+# Root variables are resolved only for the dataset being used.
+datasets:
+  FaceForensics++:
+    media_type: video
+    root: ${FFPP_ROOT}
+    adapter: ffpp
+    compression: c23
+    # Standard FF++ manipulation methods. FaceShifter is held out below.
+    methods: [Deepfakes, Face2Face, FaceSwap, NeuralTextures]
+  FaceShifter:
+    media_type: video
+    root: ${FFPP_ROOT}
+    adapter: ffpp
+    compression: c23
+    methods: [FaceShifter]
+  Celeb-DF-v1:
+    media_type: video
+    root: ${CELEB_DF_V1_ROOT}
+    adapter: celeb_df
+  Celeb-DF-v2:
+    media_type: video
+    root: ${CELEB_DF_V2_ROOT}
+    adapter: celeb_df
+  OpenFake-v1:
+    media_type: image
+    root: ${OPENFAKE_V1_ROOT}
+    adapter: parquet
+    splits:
+      test: [test-*.parquet]
+    metadata_columns: [model, type]
+  OpenFake-v2:
+    media_type: image
+    root: ${OPENFAKE_V2_ROOT}
+    adapter: parquet
+    splits:
+      test: [test-*.parquet]
+    metadata_columns: [model, type]
+  OpenFake:
+    media_type: image
+    root: ${OPENFAKE_ROOT}
+    adapter: parquet
+    splits:
+      test: [test-*.parquet]
+    metadata_columns: [model, type]
+  DeepFakeDetection:
+    media_type: video
+    root: ${FFPP_ROOT}
+    adapter: directories
+    splits:
+      test:
+        protocol: all_available_actors_and_dfd_c23
+        groups:
+          - {pattern: original_sequences/actors/c23/frames/*, label: 0, category: actors}
+          - {pattern: manipulated_sequences/DeepFakeDetection/c23/frames/*, label: 1, category: DeepFakeDetection}
+  DFDC:
+    media_type: video
+    root: ${DFDC_ROOT}
+    adapter: dfdc
+    splits:
+      test: {metadata: test/metadata.json, frames: test/frames}
+  DFDCP:
+    media_type: video
+    root: ${DFDCP_ROOT}
+    adapter: directories
+    splits:
+      test:
+        protocol: all_available_preprocessed_videos
+        groups:
+          - {pattern: original_videos/frames/*, label: 0, category: original_videos}
+          - {pattern: method_A/frames/*, label: 1, category: method_A}
+          - {pattern: method_B/frames/*, label: 1, category: method_B}
+  UADFV:
+    media_type: video
+    root: ${UADFV_ROOT}
+    adapter: directories
+    splits:
+      test:
+        protocol: all_available_preprocessed_videos
+        groups:
+          - {pattern: real/frames/*, label: 0, category: real}
+          - {pattern: fake/frames/*, label: 1, category: fake}
+  WildDeepfake:
+    media_type: video
+    root: ${WILDDEEPFAKE_ROOT}
+    adapter: directories
+    splits:
+      test:
+        protocol: provided_real_test_and_fake_test
+        groups:
+          - {pattern: deepfake_in_the_wild/real_test/*/real/*, label: 0, category: real}
+          - {pattern: deepfake_in_the_wild/fake_test/*/fake/*, label: 1, category: fake}
+  UniversalFakeDetect:
+    media_type: image
+    root: ${UFD_ROOT}
+    adapter: universal
+    ignore_dirs: [ckpts]
+    splits: {train: train, test: test}
+  Tiny-GenImage:
+    media_type: image
+    root: ${TINY_GENIMAGE_ROOT}
+    adapter: parquet
+    splits:
+      train: [train-*.parquet]
+      val: [validation-*.parquet]
+    label_map: {'0': 0, '1': 1}
+    metadata_columns: [generator]
+
+# Named manifest subsets. {frames} follows the configured video sampling.
+inputs:
+  ffpp_train:
+    dataset: FaceForensics++
+    manifest: ${MANIFEST_ROOT}/FaceForensics++-train-frames-{frames}.jsonl
+    split: train
+  ffpp_val:
+    dataset: FaceForensics++
+    manifest: ${MANIFEST_ROOT}/FaceForensics++-val-frames-{frames}.jsonl
+    split: val
+  ffpp_test:
+    dataset: FaceForensics++
+    manifest: ${MANIFEST_ROOT}/FaceForensics++-test-frames-{frames}.jsonl
+    split: test
+  ufd_test:
+    dataset: UniversalFakeDetect
+    manifest: ${MANIFEST_ROOT}/UniversalFakeDetect-test.jsonl
+    split: test
+  ufd_train_400:
+    dataset: UniversalFakeDetect
+    split: train
+    manifest: ${MANIFEST_ROOT}/UFD-train-400.jsonl
+    shuffle: false
+  ufd_val:
+    dataset: UniversalFakeDetect
+    split: val
+    manifest: ${MANIFEST_ROOT}/UFD-source-validation-400.jsonl
+  ufd_new_1_400:
+    dataset: UniversalFakeDetect
+    split: train
+    manifest: ${MANIFEST_ROOT}/UFD-new-1-400.jsonl
+    shuffle: false
+  prodet_ffpp_train:
+    dataset: FaceForensics++
+    split: train
+    manifest: ${MANIFEST_ROOT}/FaceForensics++-train-prodet-bindings.jsonl
+    model_settings:
+      prodet:
+        data_profile: specialized_quadruples
+        training_neighbors: ${MANIFEST_ROOT}/FaceForensics++-train-prodet-bindings.neighbors.json
+
+# Lightning's architecture, projection rank and Ridge lambda are defined in
+# detectors/lightning/config.py. An optional settings.mapping_path reuses a fitted map.
+models:
+  lightning:
+    runtime:
+      allow_tf32: true
+    loader:
+      decode_error_patience: 10
+    train_loader:
+      shuffle: false
+    evaluation:
+      threshold: 0.0
+  xception:
+    settings:
+      mode: original
+      init_weights: ${WEIGHT_ROOT}/xception-b5690688.pth
+      augmentation: true
+      data_aug:
+        flip_prob: 0.5
+        rotate_prob: 0.0
+        rotate_limit:
+        - -10
+        - 10
+        blur_prob: 0.5
+        blur_limit:
+        - 3
+        - 7
+        brightness_prob: 0.5
+        brightness_limit:
+        - -0.1
+        - 0.1
+        contrast_limit:
+        - -0.1
+        - 0.1
+        quality_lower: 40
+        quality_upper: 100
+    fit:
+      epochs: 11
+      patience: 3
+      optimizer: adam
+      learning_rate: 0.0002
+      weight_decay: 0.0005
+      min_delta: 0.0001
+  ucf:
+    settings:
+      init_weights: ${WEIGHT_ROOT}/xception-b5690688.pth
+      specific_classes: 5
+      specific_label_map:
+        youtube: 0
+        Deepfakes: 1
+        Face2Face: 2
+        FaceSwap: 3
+        NeuralTextures: 4
+    fit:
+      epochs: 6
+      patience: 3
+      optimizer: adam
+      learning_rate: 0.0002
+      weight_decay: 0.0005
+      min_delta: 0.0001
+    train_loader:
+      batch_size: 16
+    test_loader:
+      batch_size: 16
+  f3net:
+    settings:
+      mode: original
+      dropout: 0.5
+      augmentation: false
+      init_weights: ${WEIGHT_ROOT}/xception-b5690688.pth
+      data_aug:
+        flip_prob: 0.5
+        rotate_prob: 0.5
+        rotate_limit:
+        - -10
+        - 10
+        blur_prob: 0.5
+        blur_limit:
+        - 3
+        - 7
+        brightness_prob: 0.5
+        brightness_limit:
+        - -0.1
+        - 0.1
+        contrast_limit:
+        - -0.1
+        - 0.1
+        quality_lower: 40
+        quality_upper: 100
+    fit:
+      epochs: 11
+      patience: 3
+      optimizer: adam
+      learning_rate: 0.0002
+      weight_decay: 0.0005
+      min_delta: 0.0001
+  core:
+    settings:
+      mode: original
+      augmentation: false
+      init_weights: ${WEIGHT_ROOT}/xception-b5690688.pth
+      data_aug:
+        flip_prob: 0.5
+        rotate_prob: 0.5
+        rotate_limit:
+        - -10
+        - 10
+        blur_prob: 0.5
+        blur_limit:
+        - 3
+        - 7
+        brightness_prob: 0.5
+        brightness_limit:
+        - -0.1
+        - 0.1
+        contrast_limit:
+        - -0.1
+        - 0.1
+        quality_lower: 40
+        quality_upper: 100
+    fit:
+      epochs: 11
+      patience: 3
+      optimizer: adam
+      learning_rate: 0.0002
+      weight_decay: 0.0005
+      min_delta: 0.0001
+  gend:
+    settings:
+      head: LinearNorm
+      augmentation: true
+      initialization: pretrained_backbone
+      backbone_id: openai/clip-vit-large-patch14
+      revision: 32bd64288804d66eefd0ccbe215aa642df71cc41
+      training_profile: author_ln_l2_ua
+    fit:
+      epochs: 30
+      patience: 3
+      optimizer: adamw
+      learning_rate: 0.0003
+      weight_decay: 0.0
+      min_delta: 0.0001
+      min_learning_rate: 1.0e-06
+      cycle_epochs: 10
+      warmup_epochs: 0
+    train_loader:
+      batch_size: 128
+  effort:
+    settings:
+      backbone_id: openai/clip-vit-large-patch14
+      revision: 32bd64288804d66eefd0ccbe215aa642df71cc41
+      attention_implementation: sdpa
+      retained_rank: 1023
+      local_files_only: true
+    fit:
+      epochs: 11
+      patience: 3
+      min_delta: 0.0001
+      microbatch_size: 8
+      learning_rate: 0.0002
+      weight_decay: 0.0005
+  forada:
+    settings:
+      base_clip_checkpoint: ${WEIGHT_ROOT}/forada-clip-native.pth
+      augmentation: false
+      training_profile: author_ffpp_8_32
+    fit:
+      epochs: 61
+      patience: 3
+      optimizer: adam
+      learning_rate: 0.0002
+      weight_decay: 0.0005
+      min_delta: 0.0001
+    train_loader:
+      batch_size: 16
+  prodet:
+    settings:
+      init_weights: ${WEIGHT_ROOT}/efficientnet-b4-6ed6700e.pth
+      data_profile: native_entrypoint
+      score_type: probability
+    fit:
+      input: prodet_ffpp_train
+      epochs: 21
+      optimizer: adam
+      learning_rate: 0.0002
+      weight_decay: 0.0005
+      betas:
+      - 0.9
+      - 0.999
+      eps: 1.0e-08
+      disk_saved_tensors: false
+      disk_reserve_gib: 8
+      patience: null
+      min_delta: 0.0
+    train_loader:
+      batch_size: 24
+      num_workers: 8
+    evaluation:
+      group_by: []

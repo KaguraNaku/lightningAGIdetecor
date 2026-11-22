@@ -20,7 +20,7 @@ missing old BatchNorm counters and classifier/unused adjustment parameters.
 Unexpected body keys or shapes fail. Trained detector imports and self-contained
 restoration load strictly.
 
-configs/experiments/xception_ffpp.yaml requires a real local initialization path.
+The Xception entry in configs/config.yaml requires a local initialization path.
 It selects models using source validation, under remake-source-validation-v1;
 this is not an assertion of original sample/protocol reproduction. Use
 tools/bounded_run.py for execution. Do not change batch size or claim a full
