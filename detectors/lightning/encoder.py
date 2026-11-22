@@ -3,24 +3,43 @@ import torch
 from torch import nn
 from torch.nn import functional as F
 
-DEFAULT_BACKBONE_ID = "openai/clip-vit-large-patch14"
-DEFAULT_LAYERS = (0, 3, 7, 10, 13, 16, 20, 23)
+from . import config
+
+
+GLOBAL_READOUTS = {
+    "clip": "cls",
+    "clip_vision_model": "cls",
+    "dinov2": "cls",
+    "vit": "cls",
+    "siglip": "global",
+    "siglip_vision_model": "global",
+}
+
+
+def global_readout_for(model_type):
+    try:
+        return GLOBAL_READOUTS[model_type]
+    except KeyError:
+        supported = ", ".join(GLOBAL_READOUTS)
+        raise ValueError(
+            f"Lightning does not support backbone architecture {model_type!r}. Supported: {supported}"
+        ) from None
 
 
 class VisionEncoder(nn.Module):
-    def __init__(self, vision, layers=DEFAULT_LAYERS):
+    def __init__(self, vision, layers=config.LAYERS):
         super().__init__()
-        self.vision = vision.eval().requires_grad_(False)
         self.layers = tuple(layers)
-        config = vision.config
-        if max(self.layers) >= config.num_hidden_layers:
-            raise ValueError(f"Selected layers exceed the backbone's {config.num_hidden_layers} blocks")
-        self.width = config.hidden_size
-        self.uses_attention_pool = config.model_type in ("siglip", "siglip_vision_model")
+        vision_config = vision.config
+        self.global_branch = global_readout_for(vision_config.model_type)
+        if max(self.layers) >= vision_config.num_hidden_layers:
+            raise ValueError(f"Selected layers exceed the backbone's {vision_config.num_hidden_layers} blocks")
+        self.width = vision_config.hidden_size
+        self.uses_attention_pool = self.global_branch == "global"
         if self.uses_attention_pool and not hasattr(vision, "head"):
             raise ValueError("SigLIP requires its pretrained attention pooling head")
-        self.global_branch = "global" if self.uses_attention_pool else "cls"
-        self.patch_start = 0 if self.uses_attention_pool else 1 + getattr(config, "num_register_tokens", 0)
+        self.patch_start = 0 if self.uses_attention_pool else 1 + getattr(vision_config, "num_register_tokens", 0)
+        self.vision = vision.eval().requires_grad_(False)
 
     def train(self, mode=True):
         return super().train(False)

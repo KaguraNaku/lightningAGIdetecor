@@ -90,7 +90,7 @@ def read_experiment(path, *, require_fit=True, variables=None, env_file=None):
             raise ValueError("fit.input must name a train input")
         if factory == ModelRegistry.get("lightning").factory:
             if "ridge_lambda" in fit:
-                raise ValueError("Declare ridge_lambda under model")
+                raise ValueError("Set RIDGE_LAMBDA in detectors/lightning/config.py")
             if any(fit.get(key) is not None for key in ("epochs", "patience", "monitor")):
                 raise ValueError("Lightning fits analytically without epochs or validation-based selection")
         validation = fit.get("validation_input")

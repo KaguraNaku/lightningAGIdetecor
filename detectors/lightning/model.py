@@ -6,9 +6,9 @@ from numbers import Real
 import numpy as np
 import scipy.linalg as la
 
+from . import config
+
 BRANCHES = ("cls", "mean")
-PROJECTION_RANK = 128
-DEFAULT_RIDGE_LAMBDA = .15
 
 
 def positive_ridge_lambda(value):
@@ -19,11 +19,30 @@ def positive_ridge_lambda(value):
 
 @dataclass
 class SufficientStatistics:
-    g: np.ndarray
-    h: np.ndarray
-    sz: np.ndarray
-    sy: float
-    n: int
+    """Additive statistics for one Ridge readout.
+
+    The rows of Z are projected features. The labels y are zero for real
+    samples and one for fake samples.
+
+    Attributes
+    ----------
+    gram : numpy.ndarray
+        Feature Gram matrix Z.T @ Z.
+    feature_label_sum : numpy.ndarray
+        Label-weighted feature sum Z.T @ y, summing fake samples.
+    feature_sum : numpy.ndarray
+        Sum of all projected features, Z.sum(axis=0).
+    label_sum : float
+        Sum of the labels, y.sum(), equal to the number of fake samples.
+    sample_count : int
+        Number of rows n.
+    """
+
+    gram: np.ndarray
+    feature_label_sum: np.ndarray
+    feature_sum: np.ndarray
+    label_sum: float
+    sample_count: int
 
     @classmethod
     def from_rows(cls, z, y):
@@ -32,43 +51,69 @@ class SufficientStatistics:
                 or (y.dtype != np.bool_ and not np.isin(y, [0, 1]).all())):
             raise ValueError("Aligned binary-labelled projected rows required")
         y = y.astype(np.float64, copy=False)
-        return cls(z.T @ z, z.T @ y, z.sum(0), float(y.sum()), len(y))
+        return cls(
+            gram=z.T @ z,
+            feature_label_sum=z.T @ y,
+            feature_sum=z.sum(0),
+            label_sum=float(y.sum()),
+            sample_count=len(y),
+        )
 
     @classmethod
     def from_state(cls, state):
-        return cls(*(np.asarray(state[k], dtype=np.float64) for k in ("g", "h", "sz")),
-                   float(state["sy"]), int(state["n"]))
+        return cls(
+            gram=np.asarray(state["gram"], dtype=np.float64),
+            feature_label_sum=np.asarray(state["feature_label_sum"], dtype=np.float64),
+            feature_sum=np.asarray(state["feature_sum"], dtype=np.float64),
+            label_sum=float(state["label_sum"]),
+            sample_count=int(state["sample_count"]),
+        )
 
     def state_dict(self):
-        return {"g": self.g, "h": self.h, "sz": self.sz,
-                "sy": np.asarray(self.sy), "n": np.asarray(self.n, dtype=np.int64)}
+        return {
+            "gram": self.gram,
+            "feature_label_sum": self.feature_label_sum,
+            "feature_sum": self.feature_sum,
+            "label_sum": np.asarray(self.label_sum),
+            "sample_count": np.asarray(self.sample_count, dtype=np.int64),
+        }
 
     def add(self, other):
-        if self.g.shape != other.g.shape:
+        if self.gram.shape != other.gram.shape:
             raise ValueError("Cannot combine statistics under different feature dimensions")
-        return type(self)(self.g + other.g, self.h + other.h, self.sz + other.sz,
-                          self.sy + other.sy, self.n + other.n)
+        return type(self)(
+            gram=self.gram + other.gram,
+            feature_label_sum=self.feature_label_sum + other.feature_label_sum,
+            feature_sum=self.feature_sum + other.feature_sum,
+            label_sum=self.label_sum + other.label_sum,
+            sample_count=self.sample_count + other.sample_count,
+        )
 
-    def solve(self, *, ridge_lambda=DEFAULT_RIDGE_LAMBDA):
-        if not 0 < self.sy < self.n:
+    def solve(self, *, ridge_lambda=config.RIDGE_LAMBDA):
+        if not 0 < self.label_sum < self.sample_count:
             raise ValueError("Ridge fitting requires both classes")
         ridge_lambda = positive_ridge_lambda(ridge_lambda)
-        q = self.h - self.sy / self.n * self.sz
+        label_mean = self.label_sum / self.sample_count
+        rhs = self.feature_label_sum - label_mean * self.feature_sum
         # Minimize ||Z w - (y - mean(y))||² / n + ridge_lambda * ||w||².
-        penalty = self.n * ridge_lambda
-        system = self.g.copy()
+        penalty = self.sample_count * ridge_lambda
+        system = self.gram.copy()
         system.flat[::len(system) + 1] += penalty
-        if not np.isfinite(q).all():
+        if not np.isfinite(rhs).all():
             raise ValueError("Ridge right-hand side must be finite")
         factor = la.cho_factor(system, lower=True)
-        w = la.cho_solve(factor, q, check_finite=False)
-        residual = float(la.norm(self.g @ w + penalty * w - q) / max(la.norm(q), 1e-30))
+        w = la.cho_solve(factor, rhs, check_finite=False)
+        residual = float(la.norm(self.gram @ w + penalty * w - rhs) / max(la.norm(rhs), 1e-30))
         if not math.isfinite(residual) or residual >= 1e-8 or not np.isfinite(w).all():
             raise ValueError("Analytic ridge normal-equation check failed")
-        return w, {"relative_normal_equation_residual": residual, "n": self.n,
-                   "n_fake": int(self.sy), "label_mean": self.sy / self.n,
-                   "ridge_lambda": ridge_lambda,
-                   "system_diagonal_penalty": penalty}
+        return w, {
+            "relative_normal_equation_residual": residual,
+            "n": self.sample_count,
+            "n_fake": int(self.label_sum),
+            "label_mean": label_mean,
+            "ridge_lambda": ridge_lambda,
+            "system_diagonal_penalty": penalty,
+        }
 
 
 @dataclass
@@ -129,7 +174,7 @@ class MappingAccumulator:
         self.real_square += np.square(real).sum(0)
         self.gram += np.einsum('nld,nle->lde', x, x, optimize=True)
 
-    def fit_mapping(self, rank=PROJECTION_RANK):
+    def fit_mapping(self, rank=config.PROJECTION_RANK):
         if not self.n_real or self.n < rank or not 0 < rank <= self.sum.shape[-1]:
             raise ValueError("Insufficient source rows or genuine references")
         mean = self.real_sum / self.n_real
@@ -173,7 +218,7 @@ class AnalyticReadout:
             self.statistics[branch] = (self.statistics[branch].add(extra)
                                       if branch in self.statistics else extra)
 
-    def solve(self, ridge_lambda=DEFAULT_RIDGE_LAMBDA):
+    def solve(self, ridge_lambda=config.RIDGE_LAMBDA):
         coefficients, audits, bias = {}, {}, 0.
         for branch in self.branches:
             if branch not in self.statistics:

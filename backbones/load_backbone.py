@@ -6,6 +6,13 @@ from pathlib import Path
 from .registry import LOADERS
 
 
+def get_backbone_model_type(model_id, **kwargs):
+    """Read the Hugging Face architecture without loading model weights."""
+    from transformers import AutoConfig
+
+    return AutoConfig.from_pretrained(model_id, **kwargs).model_type
+
+
 class BackboneLoader:
     """Resolve native or Hugging Face model types only when loading is requested."""
 
@@ -19,13 +26,8 @@ class BackboneLoader:
 
     def load(self, model_id, component="vision", *, model_type=None, **kwargs):
         if model_type is None:
-            from transformers import AutoConfig
-
-            config = AutoConfig.from_pretrained(
-                model_id,
-                **{key: value for key, value in kwargs.items() if key in self.CONFIG_OPTIONS},
-            )
-            model_type = config.model_type
+            config_options = {key: value for key, value in kwargs.items() if key in self.CONFIG_OPTIONS}
+            model_type = get_backbone_model_type(model_id, **config_options)
         loader = self.registry.resolve(model_type, component, importer=import_module)
         return loader(model_id, **kwargs)
 
