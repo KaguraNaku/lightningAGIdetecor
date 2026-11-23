@@ -56,6 +56,17 @@ def optimizer_names(trainer, optimizer):
     return [[names[id(p)] for p in group['params']] for group in optimizer.param_groups]
 
 
+def restore_selected_state(trainer, saved):
+    trainer.model.load_state_dict(saved["state_dict"])
+    if (objective := getattr(trainer, "objective", None)) is not None:
+        objective.load_state_dict(saved["objective"])
+    method_state = saved.get("method_state")
+    if (load_method := getattr(trainer, "load_method_state_dict", None)) is not None:
+        load_method(method_state)
+    elif method_state is not None:
+        raise ValueError("Unexpected method-specific trainer state")
+
+
 def restore_training_state(saved, trainer, optimizer, scaler, loader, validation_loader, runtime):
     contract = saved['training_state']
     if (contract["optimizer_type"] != qualified(optimizer)
@@ -69,12 +80,7 @@ def restore_training_state(saved, trainer, optimizer, scaler, loader, validation
         check_contract(before, carried)
     elif before != carried:
         raise ValueError("Checkpoint optimizer hyperparameters differ")
-    load_weights = getattr(trainer, "load_selected_weights", trainer.model.load_state_dict)
-    load_weights(saved["state_dict"])
-    if (objective := getattr(trainer, "objective", None)) is not None:
-        objective.load_state_dict(saved["objective"])
-    if (load_method := getattr(trainer, "load_method_state_dict", None)) is not None:
-        load_method(saved.get("method_state"))
+    restore_selected_state(trainer, saved)
     optimizer.load_state_dict(saved["optimizer"])
     scaler.load_state_dict(saved["scaler"])
     restore_loader(loader, contract["loaders"]["train"])
@@ -133,6 +139,6 @@ class TrainingSnapshot:
         }
         if (objective := getattr(trainer, "objective", None)) is not None:
             state["objective"] = objective.state_dict()
-        if (method_state := getattr(trainer, "method_state_dict", None)) is not None:
-            state["method_state"] = method_state()
+        if (save_method := getattr(trainer, "method_state_dict", None)) is not None:
+            state["method_state"] = save_method()
         return state

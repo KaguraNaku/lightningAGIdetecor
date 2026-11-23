@@ -18,9 +18,9 @@ import torch
 from torch import nn
 
 from data.manifest import sha256
-from engine.training_state import TrainingSnapshot
 from engine.evaluate import coverage, evaluate
 from engine.runtime import atomic_save
+from engine.training_state import TrainingSnapshot, restore_selected_state
 
 logger = logging.getLogger(__name__)
 
@@ -112,16 +112,6 @@ class ImageClassificationTrainer:
     def batch_context(self, batch, *, runtime, output, step):
         """Optional method-owned transport around whole forward and backward."""
         return nullcontext()
-
-    def method_state_dict(self):
-        return None
-
-    def load_selected_weights(self, weights):
-        self.model.load_state_dict(weights, strict=True)
-
-    def load_method_state_dict(self, state):
-        if state is not None:
-            raise ValueError("Unexpected method-specific trainer state")
 
     def build_optimizer(self, settings):
         parameters = [p for p in self.model.parameters() if p.requires_grad]
@@ -379,9 +369,7 @@ class ImageClassificationTrainer:
         selected = torch.load(
             output / "best.pth", weights_only=True, mmap=True, map_location="cpu"
         )
-        self.load_selected_weights(selected["state_dict"])
-        self.objective.load_state_dict(selected["objective"], strict=True)
-        self.load_method_state_dict(selected.get("method_state"))
+        restore_selected_state(self, selected)
         self.model.eval()
         return {
             "epochs": len(history),
