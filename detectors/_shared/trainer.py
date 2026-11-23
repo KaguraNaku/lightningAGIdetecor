@@ -21,7 +21,6 @@ from data.manifest import sha256
 from engine.training_state import TrainingSnapshot
 from engine.evaluate import coverage, evaluate
 from engine.runtime import atomic_save
-from engine.training_timing import timed_fit, training_region, host_region, validation_meter
 
 logger = logging.getLogger(__name__)
 
@@ -209,7 +208,7 @@ class ImageClassificationTrainer:
                         raise ValueError("Invalid or repeated training sample identity")
                     seen.add(source.id)
                     stream.write(json.dumps({**metadata, "label": label}) + "\n")
-                with training_region(self, batch):
+                with runtime.time_region("fit/batch", samples=count):
                     optimizer.zero_grad(set_to_none=True)
                     images = batch["pixel_values"].to(runtime.device, non_blocking=True)
                     labels = batch["labels"].to(runtime.device, non_blocking=True)
@@ -242,7 +241,6 @@ class ImageClassificationTrainer:
         receipts.replace(output / "samples.jsonl")
         return loss_sum / len(seen), report
 
-    @timed_fit
     def fit(self, loader, *, validation_loader, runtime, settings, output_dir):
         monitor = settings.get("monitor", "video.auc")
         if monitor not in (f"{self.prediction_unit}.auc", "video.auc"):
@@ -323,27 +321,26 @@ class ImageClassificationTrainer:
             epoch_dir = output / f"epoch-{epoch:03d}"
             training = epoch_dir / "train"
             training.mkdir(parents=True)
-            with host_region(self, "train"):
-                loss, train_report = self.train_epoch(
-                    loader, optimizer, scaler, runtime=runtime, output=training
-                )
+            loss, train_report = self.train_epoch(
+                loader, optimizer, scaler, runtime=runtime, output=training
+            )
             # Validation and serialized snapshots do not use parameter gradients.
             # The next batch also starts with zero_grad; discard these tensors
             # before the large model/optimizer checkpoint write.
             optimizer.zero_grad(set_to_none=True)
             self.model.eval()
-            with host_region(self, "source_validation"):
-                validation = evaluate(
-                    self.make_scorer(),
-                    validation_loader,
-                    runtime=runtime,
-                    settings={
-                        "threshold": 0.5,
-                        "video_aggregation": "mean",
-                        "group_by": ["category"],
-                    },
-                    output_dir=epoch_dir / "validation", timing=validation_meter(self),
-                )
+            validation = evaluate(
+                self.make_scorer(),
+                validation_loader,
+                runtime=runtime,
+                settings={
+                    "threshold": 0.5,
+                    "video_aggregation": "mean",
+                    "group_by": ["category"],
+                },
+                output_dir=epoch_dir / "validation",
+                phase="fit/validation",
+            )
             unit, metric = monitor.split(".")
             value = validation[unit][metric] if validation[unit] is not None else None
             if value is None or not math.isfinite(value):
@@ -361,8 +358,6 @@ class ImageClassificationTrainer:
                 "improved": improved,
                 "stale": stale,
             }
-            if getattr(self, "_timing", None):
-                self._timing.epochs += 1
             history.append(record)
             atomic_save(output / "history.json", history)
             snapshot = {
@@ -371,10 +366,9 @@ class ImageClassificationTrainer:
                 "record": record,
                 "protocol": protocol,
             }
-            with host_region(self, "checkpoint"):
-                atomic_save(output / "last.pth", snapshot, torch_format=True)
-                if improved:
-                    select_checkpoint(output / "last.pth", output / "best.pth")
+            atomic_save(output / "last.pth", snapshot, torch_format=True)
+            if improved:
+                select_checkpoint(output / "last.pth", output / "best.pth")
             del snapshot
             logger.info(
                 "Classification epoch %d loss %.6f %s %.6f", epoch, loss, monitor, value
@@ -382,14 +376,13 @@ class ImageClassificationTrainer:
             if patience is not None and stale >= patience:
                 break
         del optimizer, scaler
-        with host_region(self, "checkpoint_restore"):
-            selected = torch.load(
-                output / "best.pth", weights_only=True, mmap=True, map_location="cpu"
-            )
-            self.load_selected_weights(selected["state_dict"])
-            self.objective.load_state_dict(selected["objective"], strict=True)
-            self.load_method_state_dict(selected.get("method_state"))
-            self.model.eval()
+        selected = torch.load(
+            output / "best.pth", weights_only=True, mmap=True, map_location="cpu"
+        )
+        self.load_selected_weights(selected["state_dict"])
+        self.objective.load_state_dict(selected["objective"], strict=True)
+        self.load_method_state_dict(selected.get("method_state"))
+        self.model.eval()
         return {
             "epochs": len(history),
             "best_epoch": best_epoch,

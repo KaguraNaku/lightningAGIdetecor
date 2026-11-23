@@ -9,7 +9,6 @@ import torch
 from detectors._shared.trainer import ImageClassificationTrainer
 from engine.evaluate import coverage
 from engine.runtime import atomic_save
-from engine.training_timing import timed_fit, training_region, host_region, validation_meter
 from .dataset import UCFDataset, UCFCollator, UCFDataError, metadata
 
 
@@ -111,7 +110,7 @@ class UCFTrainer(ImageClassificationTrainer):
                         )
                         + "\n"
                     )
-                with training_region(self, batch):
+                with runtime.time_region("fit/batch", samples=count):
                     optimizer.zero_grad(set_to_none=True)
                     images = batch["pixel_values"].to(runtime.device, non_blocking=True)
                     labels = labels.to(runtime.device, non_blocking=True)

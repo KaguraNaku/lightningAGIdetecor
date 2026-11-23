@@ -6,7 +6,6 @@ from datetime import datetime, timezone
 import logging
 from pathlib import Path
 import platform
-import time
 
 from .models import ModelRegistry
 
@@ -25,6 +24,7 @@ def execute(
     training_input=None,
     validation_input=None,
     evaluation_inputs=None,
+    timing=False,
     public=False,
 ):
     import torch
@@ -48,7 +48,6 @@ def execute(
         sampler_factory_for,
         create_run_dir,
     )
-    started_clock = time.perf_counter()
     config = read_experiment(
         config_path, require_fit=command != "evaluate", env_file=env_file, model_name=model_name,
         training_input=training_input, validation_input=validation_input,
@@ -76,11 +75,12 @@ def execute(
     }
     atomic_save(directory / "run.json", status)
     previous_tf32 = None
+    runtime = None
     try:
         (directory / "resolved-config.yaml").write_text(
             yaml.safe_dump(config, sort_keys=False)
         )
-        runtime = Runtime.create(config["runtime"], config["seed"])
+        runtime = Runtime.create(config["runtime"], config["seed"], timing=timing)
         data = DataConfig.for_experiment(config_path, config, registry=datasets, env_file=env_file)
         status["dataset_registry_sha256"] = sha256(data.path)
         logger.info("Run directory: %s", directory)
@@ -130,23 +130,24 @@ def execute(
             return loader
 
         if command != "evaluate":
-            name = config["fit"]["input"]
-            loader = make_loader(name, "train")
-            validation_name = config["fit"].get("validation_input")
-            validation_loader = (
-                make_loader(validation_name, "validation") if validation_name else None
-            )
-            fit_dir = directory / "fit"
-            fit_dir.mkdir()
-            path, status["fit"] = fit(
-                task,
-                loader,
-                validation_loader=validation_loader,
-                runtime=runtime,
-                config=config,
-                output_dir=fit_dir,
-                provenance={"seed": config["seed"], "inputs": dict(status["inputs"])},
-            )
+            with runtime.time_region("fit"):
+                name = config["fit"]["input"]
+                loader = make_loader(name, "train")
+                validation_name = config["fit"].get("validation_input")
+                validation_loader = (
+                    make_loader(validation_name, "validation") if validation_name else None
+                )
+                fit_dir = directory / "fit"
+                fit_dir.mkdir()
+                path, status["fit"] = fit(
+                    task,
+                    loader,
+                    validation_loader=validation_loader,
+                    runtime=runtime,
+                    config=config,
+                    output_dir=fit_dir,
+                    provenance={"seed": config["seed"], "inputs": dict(status["inputs"])},
+                )
             del loader, validation_loader
             status["checkpoint"] = {"path": str(path), "sha256": sha256(path)}
             if command == "run":
@@ -155,14 +156,17 @@ def execute(
                 task, _ = restore(path)
         reports = {}
         for name in names:
-            loader = make_loader(name)
-            reports[name] = evaluate(
-                task,
-                loader,
-                runtime=runtime,
-                settings=config["evaluation"],
-                output_dir=directory / name,
-            )
+            phase = f"evaluate/{name}"
+            with runtime.time_region(phase):
+                loader = make_loader(name)
+                reports[name] = evaluate(
+                    task,
+                    loader,
+                    runtime=runtime,
+                    settings=config["evaluation"],
+                    output_dir=directory / name,
+                    phase=phase,
+                )
             del loader
         if reports:
             temporary = directory / "summary.partial.csv"
@@ -187,14 +191,9 @@ def execute(
             torch.backends.cuda.matmul.allow_tf32, torch.backends.cudnn.allow_tf32 = previous_tf32
         status["finished_at"] = datetime.now(timezone.utc).isoformat()
         atomic_save(directory / "run.json", status)
-        timing_path = directory / 'fit/timing.json'
-        if timing_path.exists():
-            import json
-            timing = json.loads(timing_path.read_text())
-            timing['metadata'].update(end_to_end_wall_seconds=time.perf_counter() - started_clock,
-                end_to_end_scope='engine.cli.execute entry to finally;includes model setup,data,fit,source validation,checkpoints;excludes Python process imports',
-                run_id=directory.name)
-            atomic_save(timing_path, timing)
+        if runtime is not None and runtime.timer is not None:
+            runtime.timer.metadata.update(command=command, status=status["status"], precision=runtime.precision)
+            runtime.timer.write(directory / "timing.json")
         for handler in handlers:
             root_logger.removeHandler(handler)
             handler.close()
@@ -241,6 +240,10 @@ def main(argv=None):
             command.add_argument(
                 "--tf32", dest="allow_tf32", action=argparse.BooleanOptionalAction,
                 help="Allow TF32 on CUDA; enabled by default for Lightning",
+            )
+            command.add_argument(
+                "--timing", action=argparse.BooleanOptionalAction, default=False,
+                help="Write a timing report for the command (default: off)",
             )
         command.add_argument(
             "--log-level", choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
@@ -297,6 +300,7 @@ def main(argv=None):
             training_input=getattr(args, "train_input", None),
             validation_input=getattr(args, "validation_input", None),
             evaluation_inputs=args.test_inputs,
+            timing=args.timing,
             public=True,
             overrides={
                 key: getattr(args, key)

@@ -13,7 +13,6 @@ from data.manifest import sha256
 from engine.training_state import TrainingSnapshot
 from engine.evaluate import coverage, evaluate
 from engine.runtime import atomic_save
-from engine.training_timing import timed_fit, training_region, host_region, validation_meter
 
 logger = logging.getLogger(__name__)
 
@@ -49,7 +48,6 @@ class EffortTrainer:
         self.model = model
         self.origin = origin or {}
 
-    @timed_fit
     def fit(self, loader, *, validation_loader, runtime, settings, output_dir):
         if validation_loader is None:
             raise ValueError("Effort training requires fit.validation_input")
@@ -132,50 +130,49 @@ class EffortTrainer:
             self.model.train()
             seen, loss_sum = set(), 0.0
             receipts = train_dir / "samples.partial.jsonl"
-            with host_region(self, "train"):
-                with receipts.open("w") as stream:
-                    for batch in loader:
-                        size = len(batch["labels"])
-                        if len(batch["metadata"]) != size or len(batch["pixel_values"]) != size:
-                            raise ValueError("Effort training batch alignment mismatch")
-                        for metadata, label in zip(batch["metadata"], batch["labels"].tolist(), strict=True):
-                            sample_id = metadata["id"]
-                            source = expected.get(sample_id)
-                            if (
-                                sample_id in seen or source is None or source.label != label
-                                or source.dataset != metadata["dataset"] or source.split != metadata["split"]
-                            ):
-                                raise ValueError(f"Invalid/duplicate Effort training identity: {sample_id}")
-                            seen.add(sample_id)
-                            stream.write(json.dumps({**metadata, "label": label}) + "\n")
-                        with training_region(self, batch):
-                            optimizer.zero_grad(set_to_none=True)
-                            for start in range(0, size, microbatch):
-                                images = batch["pixel_values"][start:start + microbatch].to(runtime.device, non_blocking=True)
-                                labels = batch["labels"][start:start + microbatch].to(runtime.device, non_blocking=True)
-                                with runtime.autocast():
-                                    logits = self.model(images)
-                                    loss = F.cross_entropy(logits, labels)
-                                if not torch.isfinite(loss):
-                                    raise ValueError("Nonfinite Effort training loss")
-                                scaler.scale(loss * len(labels) / size).backward()
-                                loss_sum += float(loss.detach()) * len(labels)
-                            scaler.unscale_(optimizer)
-                            if any(p.grad is not None and not torch.isfinite(p.grad).all() for p in parameters):
-                                raise ValueError("Nonfinite Effort training gradient")
-                            scaler.step(optimizer)
-                            scaler.update()
+            with receipts.open("w") as stream:
+                for batch in loader:
+                    size = len(batch["labels"])
+                    if len(batch["metadata"]) != size or len(batch["pixel_values"]) != size:
+                        raise ValueError("Effort training batch alignment mismatch")
+                    for metadata, label in zip(batch["metadata"], batch["labels"].tolist(), strict=True):
+                        sample_id = metadata["id"]
+                        source = expected.get(sample_id)
+                        if (
+                            sample_id in seen or source is None or source.label != label
+                            or source.dataset != metadata["dataset"] or source.split != metadata["split"]
+                        ):
+                            raise ValueError(f"Invalid/duplicate Effort training identity: {sample_id}")
+                        seen.add(sample_id)
+                        stream.write(json.dumps({**metadata, "label": label}) + "\n")
+                    with runtime.time_region("fit/batch", samples=size):
+                        optimizer.zero_grad(set_to_none=True)
+                        for start in range(0, size, microbatch):
+                            images = batch["pixel_values"][start:start + microbatch].to(runtime.device, non_blocking=True)
+                            labels = batch["labels"][start:start + microbatch].to(runtime.device, non_blocking=True)
+                            with runtime.autocast():
+                                logits = self.model(images)
+                                loss = F.cross_entropy(logits, labels)
+                            if not torch.isfinite(loss):
+                                raise ValueError("Nonfinite Effort training loss")
+                            scaler.scale(loss * len(labels) / size).backward()
+                            loss_sum += float(loss.detach()) * len(labels)
+                        scaler.unscale_(optimizer)
+                        if any(p.grad is not None and not torch.isfinite(p.grad).all() for p in parameters):
+                            raise ValueError("Nonfinite Effort training gradient")
+                        scaler.step(optimizer)
+                        scaler.update()
             train_report = coverage(train, seen, train_dir)
             if not seen:
                 raise ValueError("No images successfully decoded for Effort training")
             receipts.replace(train_dir / "samples.jsonl")
             self.model.eval()
-            with host_region(self, "source_validation"):
-                validation_report = evaluate(
-                    _Scorer(self.model), validation_loader, runtime=runtime,
-                    settings={"threshold": 0.5, "video_aggregation": "mean", "group_by": ["category"]},
-                    output_dir=epoch_dir / "validation", timing=validation_meter(self),
-                )
+            validation_report = evaluate(
+                _Scorer(self.model), validation_loader, runtime=runtime,
+                settings={"threshold": 0.5, "video_aggregation": "mean", "group_by": ["category"]},
+                output_dir=epoch_dir / "validation",
+                phase="fit/validation",
+            )
             unit, metric = monitor.split(".")
             values = validation_report[unit]
             auc = values[metric] if values is not None else None
@@ -190,27 +187,23 @@ class EffortTrainer:
                 "epoch": epoch, "loss": loss_sum / len(seen), "train": train_report,
                 "validation": validation_report, "improved": improved, "stale": stale,
             }
-            if getattr(self, "_timing", None):
-                self._timing.epochs += 1
             history.append(record)
             atomic_save(root / "history.json", history)
             checkpoint = {
                 **training_snapshot.capture(self, optimizer, scaler),
                 "epoch": epoch, "record": record, "protocol": protocol,
             }
-            with host_region(self, "checkpoint"):
-                atomic_save(root / "last.pth", checkpoint, torch_format=True)
-                if improved:
-                    atomic_save(root / "best.pth", checkpoint, torch_format=True)
+            atomic_save(root / "last.pth", checkpoint, torch_format=True)
+            if improved:
+                atomic_save(root / "best.pth", checkpoint, torch_format=True)
             del checkpoint
             logger.info("Effort epoch %d: loss %.6f, validation %s %.6f, stale %d", epoch, record["loss"], monitor, auc, stale)
             if stale >= patience:
                 break
         # Return the selected model, not the final optimization iterate.
-        with host_region(self, "checkpoint_restore"):
-            saved = torch.load(root / "best.pth", weights_only=True, map_location="cpu", mmap=True)
-            self.model.load_state_dict(saved["state_dict"], strict=True)
-            self.model.eval()
+        saved = torch.load(root / "best.pth", weights_only=True, map_location="cpu", mmap=True)
+        self.model.load_state_dict(saved["state_dict"], strict=True)
+        self.model.eval()
         return {
             "epochs": len(history), "best_epoch": best_epoch, "monitor": monitor, "best_validation_auc": best,
             "training_checkpoint_id": training_snapshot.id if training_snapshot.resumable else None,

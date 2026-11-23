@@ -173,7 +173,8 @@ class LightningTask:
         if self.readout is None:
             accumulators = {}
             for batch in loader:
-                features = self._readouts(batch, runtime)
+                with runtime.time_region("fit/mapping/batch", samples=len(batch["labels"])):
+                    features = self._readouts(batch, runtime)
                 if not accumulators:
                     accumulators = {branch: MappingAccumulator() for branch in features}
                 labels = batch["labels"].cpu().numpy().astype(bool, copy=False)
@@ -194,10 +195,13 @@ class LightningTask:
                 raise ValueError('Duplicate/replayed source IDs would double-count statistics')
             seen.update(ids)
             labels = batch["labels"].cpu().numpy().astype(bool, copy=False)
-            readout.update(self._readouts(batch, runtime), labels)
+            with runtime.time_region("fit/statistics/batch", samples=len(labels)):
+                features = self._readouts(batch, runtime)
+            readout.update(features, labels)
         if not seen:
             raise ValueError('No successful source images')
-        audits = readout.solve(self.ridge_lambda)
+        with runtime.time_region("fit/ridge"):
+            audits = readout.solve(self.ridge_lambda)
         self.readout = readout
         self.training_ids.update(seen)
         self.detector = None
@@ -211,7 +215,7 @@ class LightningTask:
         if validation_loader is not None:
             report['source_validation'] = evaluate(self, validation_loader, runtime=runtime,
                 settings={'threshold':0.,'video_aggregation':'mean','group_by':[]},
-                output_dir=output/'source-validation')
+                output_dir=output/'source-validation', phase="fit/validation")
         return report
 
     @torch.inference_mode()

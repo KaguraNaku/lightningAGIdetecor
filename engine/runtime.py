@@ -16,6 +16,7 @@ import uuid
 import numpy as np
 import torch
 
+from .gpu_timing import GPUTimeRecorder
 from .task import ExperimentTask
 
 
@@ -23,9 +24,10 @@ from .task import ExperimentTask
 class Runtime:
     device: torch.device
     precision: str = "fp32"
+    timer: GPUTimeRecorder | None = None
 
     @classmethod
-    def create(cls, settings, seed):
+    def create(cls, settings, seed, *, timing=False):
         random.seed(seed)
         np.random.seed(seed)
         torch.manual_seed(seed)
@@ -43,12 +45,20 @@ class Runtime:
             raise ValueError("fp16 requires CUDA; use fp32 or bf16 on CPU")
         if "allow_tf32" in settings:
             cls.set_tf32(settings["allow_tf32"])
-        return cls(device, settings["precision"])
+        timer = GPUTimeRecorder(device=device) if timing else None
+        return cls(device, settings["precision"], timer)
 
     @staticmethod
     def set_tf32(enabled):
         torch.backends.cuda.matmul.allow_tf32 = enabled
         torch.backends.cudnn.allow_tf32 = enabled
+
+    def time_region(self, phase, *, samples=None):
+        if self.timer is None:
+            return nullcontext()
+        if samples is None:
+            return self.timer.region(phase, is_batch=False, measure_cuda=False)
+        return self.timer.region(phase, samples=samples)
 
     def autocast(self):
         if self.precision == "fp32":

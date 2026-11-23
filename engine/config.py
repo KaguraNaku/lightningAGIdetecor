@@ -99,6 +99,7 @@ def read_experiment(path, *, require_fit=True, variables=None, env_file=None,
             "resolved-config.yaml",
             "summary.csv",
             "summary.partial.csv",
+            "timing.json",
         }:
             raise ValueError(f"Reserved input name: {name}")
         if not isinstance(item, dict) or not all(

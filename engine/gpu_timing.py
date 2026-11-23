@@ -9,7 +9,6 @@ class GPUTimeRecorder:
     """Events bound real compute calls; one synchronization only when flushing.
 
     CUDA elapsed is stream elapsed, not a sum of active SM kernel durations.
-    Callers must state whether H2D/score copies are included in the region.
     No synthetic warmup runs are executed. All natural batches remain in totals.
     """
     def __init__(self, *, device='cuda:0', warmup_batches=3, metadata=None,
@@ -29,17 +28,18 @@ class GPUTimeRecorder:
         self.created_at = self.clock()
 
     @contextmanager
-    def region(self, phase, *, samples=0, scope='', is_batch=True):
+    def region(self, phase, *, samples=0, is_batch=True, measure_cuda=True):
         if samples < 0:
             raise ValueError('samples must be nonnegative')
         index = self.indices.get(phase, 0)
         self.indices[phase] = index + 1
-        row = {'phase': phase, 'scope': scope, 'samples': int(samples),
+        row = {'phase': phase, 'samples': int(samples),
                'is_batch': is_batch, 'batch_index': index if is_batch else None,
                'natural_warmup': bool(is_batch and index < self.warmup_batches),
                'completed': False, 'cuda_event_ms': None}
         start = end = None
-        if self.cuda_enabled:
+        cuda_timed = self.cuda_enabled and measure_cuda
+        if cuda_timed:
             stream = self.cuda.current_stream(self.device)
             start = self.cuda.Event(enable_timing=True)
             end = self.cuda.Event(enable_timing=True)
@@ -50,7 +50,7 @@ class GPUTimeRecorder:
             row['completed'] = True
         finally:
             row['host_region_seconds'] = self.clock() - begin
-            if self.cuda_enabled:
+            if cuda_timed:
                 end.record(stream)
                 self.pending.append((row, start, end))
             self.rows.append(row)
@@ -63,9 +63,10 @@ class GPUTimeRecorder:
             self.pending.clear()
 
     @staticmethod
-    def _aggregate(rows, cuda_enabled):
+    def _aggregate(rows):
         images = sum(r['samples'] for r in rows)
-        ms = sum(r['cuda_event_ms'] for r in rows) if rows and cuda_enabled else None
+        elapsed = [r['cuda_event_ms'] for r in rows if r['cuda_event_ms'] is not None]
+        ms = sum(elapsed) if elapsed else None
         wall = sum(r['host_region_seconds'] for r in rows)
         return {'calls': len(rows), 'samples': images,
                 'completed_calls': sum(r['completed'] for r in rows),
@@ -80,9 +81,8 @@ class GPUTimeRecorder:
         phases = {}
         for phase in sorted({r['phase'] for r in self.rows}):
             rr = [r for r in self.rows if r['phase'] == phase]
-            phases[phase] = {'all_real_calls': self._aggregate(rr, self.cuda_enabled),
-                'excluding_natural_warmup': self._aggregate([r for r in rr if not r['natural_warmup']], self.cuda_enabled),
-                'scopes': sorted({r['scope'] for r in rr})}
+            phases[phase] = {'all_real_calls': self._aggregate(rr),
+                'excluding_natural_warmup': self._aggregate([r for r in rr if not r['natural_warmup']])}
         memory = {'scope': 'process allocator peak since caller last reset;timer does not reset counters',
                   'max_allocated_bytes': None, 'max_reserved_bytes': None}
         if self.cuda_enabled:

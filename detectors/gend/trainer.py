@@ -34,22 +34,8 @@ class GenDTrainer(ImageClassificationTrainer):
     def backward_batch(self, batch, images, labels, *, runtime, scaler):
         if self.gradient_cache is None:
             return super().backward_batch(batch, images, labels, runtime=runtime, scaler=scaler)
-        try:
-            return self.gradient_cache.backward(images, labels, objective=self.objective,
-                scaler=scaler, runtime=runtime, validate_loss=self.validate_loss)
-        finally:
-            timing = getattr(self, "_timing", None)
-            if timing is not None and timing.meter is not None:
-                cache = self.gradient_cache
-                timing.meter.metadata.update(gradient_cache=self.gradient_cache_policy,
-                    effective_batch_size=self.gradient_cache_policy["logical_batch_size"],
-                    execution_microbatch_size=cache.microbatch_size,
-                    gradient_cache_gpu_time_scope="cache forward+full logical loss/output gradient+replay forward/backward;optimizer included by train_step region",
-                    cache_forward_images=cache.cached_images,
-                    replay_forward_images=cache.replayed_images,
-                    model_forward_images=cache.cached_images + cache.replayed_images,
-                    cache_forward_batches=cache.cache_forwards,
-                    replay_forward_batches=cache.replay_forwards)
+        return self.gradient_cache.backward(images, labels, objective=self.objective,
+            scaler=scaler, runtime=runtime, validate_loss=self.validate_loss)
 
     def fit(self, loader, **kwargs):
         settings = kwargs["settings"]

@@ -3,7 +3,6 @@
 from copy import deepcopy
 from pathlib import Path
 import zipfile
-import time
 
 import torch
 
@@ -116,7 +115,6 @@ def _resume_training_task(config):
 
 
 def fit(task, loader, *, validation_loader=None, runtime, config, output_dir, provenance):
-    fit_started = time.perf_counter()
     options = {}
     # Preserve adapters predating validation support when no validation is requested.
     if validation_loader is not None:
@@ -127,7 +125,6 @@ def fit(task, loader, *, validation_loader=None, runtime, config, output_dir, pr
     if config["fit"].get("ufd") is not None:
         report = {**report, "adaptation": deepcopy(task.origin["UFD_adaptation"])}
     checkpoint_id = report.pop("training_checkpoint_id", None)
-    export_started = time.perf_counter()
     checkpoint = {
         "version": 1,
         "model": config["model"],
@@ -143,9 +140,6 @@ def fit(task, loader, *, validation_loader=None, runtime, config, output_dir, pr
         checkpoint["training_state"] = {"id": checkpoint_id, "epoch": report["best_epoch"]}
     path = Path(output_dir) / "model.pth"
     atomic_save(path, checkpoint, torch_format=True)
-    from engine.training_timing import update_export_timing
-    update_export_timing(output_dir, fit_wall=time.perf_counter() - fit_started,
-        export_wall=time.perf_counter() - export_started, model_path=path)
     return path, report
 
 

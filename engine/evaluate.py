@@ -3,7 +3,6 @@
 import json
 import logging
 import os
-from contextlib import nullcontext
 from pathlib import Path
 
 import torch
@@ -34,7 +33,7 @@ def coverage(dataset, successful_ids, output_dir):
 
 
 @torch.inference_mode()
-def evaluate(task, loader, *, runtime, settings, output_dir, timing=None):
+def evaluate(task, loader, *, runtime, settings, output_dir, phase="evaluate"):
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     media_type = getattr(loader, "media_type", None)
@@ -47,12 +46,11 @@ def evaluate(task, loader, *, runtime, settings, output_dir, timing=None):
     seen = set()
     expected_records = {record.id: record for record in loader.dataset.records}
     temporary = output_dir / "predictions.partial.jsonl"
+    batch_phase = f"{phase}/batch"
     with temporary.open("w") as stream:
         for batch in loader:
             predict_batch = getattr(task, "predict_batch", None)
-            region = timing.region('source_validation_step', samples=len(batch['metadata']),
-                scope='H2D+predict;score-copy excluded') if timing is not None else nullcontext()
-            with region:
+            with runtime.time_region(batch_phase, samples=len(batch["metadata"])):
                 scores = (
                     predict_batch(batch, runtime=runtime)
                     if callable(predict_batch)
