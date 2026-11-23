@@ -98,12 +98,14 @@ spawned workers, explicit Parquet transport, strict raw state and complete nativ
 resolution best/last selection/save/restore/evaluation. A pinned-AUC fixture tests
 selection independently from the separate unmocked miniature validation workflow.
 
-Default source settings are Adam2e-4, decay5e-4, no scheduler and six inclusive
-sweeps. Best checkpoints are selected on the source validation split. Example source
-pairbatch16/effective32 is not reproduced by bounded miniature pairbatch1/2 tests.
-Standalone inference needs neither initializer files nor training data; strict
-state includes both encoders, unused classifiers, projections, both heads and
-the complete reconstruction branch. Exact optimizer/RNG training resume,
-historical trained scores, GPU alignment and full dataset experiments remain
-unverified. Lightning dual experts and unified partial_fit/remove_batch remain
-unconnected.
+Run ``uv run python engine.py fit --model ucf``. The FF++ preset uses 16 pairs
+per batch (32 images), Adam at 0.0002, weight decay 0.0005 and up to six epochs.
+Best checkpoints are selected on the source validation split. For UFD fitting,
+the Task uses six auxiliary classes, including ProGAN. The FF++ warm-start
+route expands the auxiliary head and preserves its existing rows.
+
+To resume training, pass ``model.pth`` to ``--checkpoint`` and keep the paired
+``best.pth`` with the selected optimizer and RNG state. An exported model
+contains both encoders, projections, both heads and the reconstruction branch.
+
+*Created by Codex.*

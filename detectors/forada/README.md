@@ -26,6 +26,10 @@ Native all-real batches produce undefined contrastive loss; the adapter fails
 clearly instead of reporting a finite CE-only substitute. Whole batches retain
 BatchNorm and contrastive semantics.
 
+Run FF++ training with `uv run python engine.py fit --model forada`. For UFD
+training, the Task derives whole-image masks from the image labels and uses a
+sampler that includes at least one fake in every batch.
+
 ## Explicit reference repairs and retained behavior
 
 1. The original reconstructed-attention patch slice write overwrites a tensor
@@ -37,9 +41,10 @@ BatchNorm and contrastive semantics.
 3. The original adapter creates unregistered random Fusion layers on every
    forward, including evaluation. This unusual behavior is retained rather than
    changed into a new learned persistent fusion scheme. Exact prediction replay
-   requires matching external Torch RNG state as well as weights. Training
-   snapshots record RNG; exact restart/resume is not implemented by the shared
-   trainer. Parameter checkpoint round trips are strict.
+   requires matching external Torch RNG state as well as weights. For training
+   resume, pass the fitted `model.pth` to `--checkpoint` and keep the paired
+   `best.pth`. The shared trainer restores the selected epoch's optimizer,
+   RNG and sampler state. Use nonpersistent loader workers for resume.
 
 TinyViT uses a small dependency-free subset of timm0.6.12 operators because that
 timm release cannot import on the project's Python3.13. Loaded state keys and

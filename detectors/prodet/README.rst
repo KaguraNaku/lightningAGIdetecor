@@ -18,10 +18,10 @@ draws remain CPU draws;CUDA copies alone are ported to the operand device.
 Data recipes require explicit wiring
 -----------------------------------
 
-The FF++ training input in ``configs/config.yaml`` selects
-``specialized_quadruples``: the author's SBIPlusV2 data recipe. The previous
-``native_entrypoint`` selected ordinary binary images; that historical recipe
-is used for whole-image UFD fitting. FF++ training uses the source bindings.
+The ``prodet_ffpp_train`` input in ``configs/config.yaml`` selects
+``specialized_quadruples``, the author's SBIPlusV2 recipe with bound landmarks
+and neighbors. Whole-image UFD fitting uses ``native_entrypoint``, which
+trains on ordinary binary image labels.
 
 The separately defined ``SBIPlusV2Dataset`` instead collates24 quadruples into
 96 images inreal/blend/BI/deepfake order,withoriginal float labels0/1/3/2.
@@ -31,12 +31,9 @@ are now independently implemented in ``generation.py``. ``ProDetSourcePlan``
 now prepares filesystem source identities, pairing, hashed landmark/neighbor
 bindings and complete-source split checks. ``ProDetDataset`` now composes that
 plan with native image/NPY decoding and generation through the shared loader.
-The unified Task and dedicated Trainer are now prepared, with native PNG
-inference/conversion/evaluation verified; actual full-CNN fitting remains pending.
-Keep these recipes distinct;
-do not flatten specialized domain
-labels to binary loss targets orsilently describe a wiring repair as untouched
-``train.py`` behavior. The source epoch loop is0..20 inclusive21 epochs.
+The Task uses the specialized domain labels to compute its training loss and
+binary labels to calculate coverage. The source epoch loop runs from zero
+through 20.
 
 Author method with the default FF++ sampling
 ------------------------------------------------
@@ -84,11 +81,10 @@ are loaded for synthesis. The source-val selection, deterministic shared
 worker seeding and test protocol are our common experimental controls, so
 this is the author method under our controls, not an identical paper rerun.
 
-``check --batches 1`` additionally loads the actual initialization checkpoint and
-decodes one production batch per input on CPU, with the configured worker/batch
-settings. Training checks preserve24 quadruples/96 views and ordered float
-domain labels. It checks clean source validation and configured test inputs
-through their normal adapters. No model forward, optimizer or training runs.
+``check`` validates the landmark bindings, neighbors and source split.
+``check --batches 1`` additionally initializes the Task and decodes one
+production batch per input on CPU. The training check reports the number of
+quadruples and their ordered float domain labels.
 
 Verified mathematical scope
 ---------------------------
@@ -133,9 +129,6 @@ mutation-while-iterating filter. ``ProDetSourcePlan`` below provides that
 explicit binding/filter protocol. Nonfinite/empty BI color-transfer results fail visibly;
 there is no added epsilon, replacement source or silently repaired pixel rule.
 
-The data differential and reproducible commands are indexed in
-``experiments/detector_rewrite/prodet_data_audit_20261104.json``.
-
 Source binding and pairing preparation
 -------------------------------------
 
@@ -172,10 +165,6 @@ pending. The Dataset now validates shape/finite numeric NPY arrays and supports
 worker synthesis on explicitly bound filesystem inputs. The original unused
 ``landmark_dict`` pickle read is not reproduced in production.
 
-Commands, raw fixture pools, native prefix/filter outputs, test receipts and the
-negative run are indexed in
-``experiments/detector_rewrite/prodet_protocol_audit_20261104.json``.
-
 Filesystem Dataset and worker preparation
 ----------------------------------------
 
@@ -209,10 +198,6 @@ apply to that worker configuration. The initial native harness failed on a
 missing ``Tensor`` annotation binding before data
 iteration. Only that reference namespace was corrected; the failed run remains.
 
-Commands, raw native/candidate epochs, generation/selection receipts, resource
-records and negative run are indexed in
-``experiments/detector_rewrite/prodet_dataset_audit_20261104.json``.
-
 Strict complete checkpoint transport
 ------------------------------------
 
@@ -244,11 +229,6 @@ trained-score alignment, a Task conversion/CLI test, CNN backward or a full run.
 
 The six full-geometry contracts retain their raw format/negative-case files and
 verify strict import/restore, isolated storage and nonpersistent recipe guards.
-No numerical worker failed in this stage. A prelaunch hook-closure lint warning
-was fixed before launch and recorded separately. Raw checkpoints, commands,
-reference lineage, outputs and capped resource receipts are indexed in
-``experiments/detector_rewrite/prodet_checkpoint_audit_20261104.json``.
-
 Unified Task and Trainer preparation
 -----------------------------------
 
@@ -278,22 +258,19 @@ historical trained-score or full-corpus evidence.
 ``ProDetTrainer`` preserves native zero-based epochs (default0..20 inclusive21),
 Adam parameter order and complete batch objectives. Specialized float0/1/3/2
 targets stay separate from binary coverage labels; formal generic entrypoint
-targets remain int64 binary. Generated-source receipts and exact saved-tensor
-transport are retained per batch. CPU fitting requires fp32, batch24 (96 images
-for specialized data), validation32, final partial batches and adequate persistent
-storage for the entire retained run plus8GiB floor and4GiB checkpoint headroom.
+targets remain int64 binary. CUDA FP32 training uses native autograd. CPU FP32
+fitting requires enabling ``models.prodet.fit.disk_saved_tensors``. It retains
+saved tensors on disk and checks storage for the entire run, including the
+8 GiB floor and 4 GiB checkpoint headroom.
 The capacity estimate is based on the full graph's logical saved bytes with25%
 archive allowance; it is not a measured RAM/disk peak. Insufficient space writes
-a negative preflight receipt before model movement/optimizer/training. GPU/AMP
-training and exact optimizer/RNG resume remain unsupported pending validation.
+a negative preflight receipt before model movement, optimizer setup or training.
 
 Ten contracts cover metadata/readiness, both data profiles, nonpersistent epoch,
 unmodified float targets, full488-parameter Adam order and a preflight proving
 training does not start with insufficient storage. Loss-route/epoch controls do
 not substitute for numerical full-B96 CNN gradients. The first combined test
 attempt and initial Task-audit path-type error are retained with corrected runs.
-Raw inputs/outputs/configs, commands and exact validation scopes are indexed in
-``experiments/detector_rewrite/prodet_task_audit_20261104.json``.
 
 The initial full-constructor harness failed onlist-versus-tuple stride reprs.
 The correction canonicalizes only that representation andchecks every numeric
@@ -301,19 +278,16 @@ convolution attribute;the source failure andraw checkpoint remain preserved.
 Readonly archive reuse occurs only after full typed-value/hash verification.
 It does not claim a new ZIP serialization was exercised onthe reuse path.
 
-Pending integration
--------------------
+Checkpoint resume
+-----------------
 
-The unified Task/Trainer/preset are prepared and the inference/conversion/CLI
-workflow is verified on declared native PNG fixtures. The method remains pending
-the actual full native fit/gradient and complete-regression gates. Detector
-weight import and Task state restore do not resume optimizer/RNG training state.
-The Dataset requires genuine source images and native landmark sidecars; the
-unified preparation command binds them and records its train-only neighbors.
-Actual full-CNN gradients at the selected96-image specialized
-geometry,the fitted restore/evaluate workflow andthe complete449 CPU suite remain pending.
-The last complete386-test pass predates these additions. No full experiment,
-historical trained detector orGPU AMP reproduction is claimed.
+Pass a fitted ``model.pth`` to ``fit --checkpoint`` and keep its paired
+``best.pth``. The latter stores the selected epoch's optimizer, RNG and
+ProDet training epoch. A specialized training input supplies its own neighbor
+sidecar. ``import-checkpoint`` imports author weights for inference.
+
+The tests cover fixture-level checkpoint and input handling. Full 96-image CNN
+training and CUDA mixed precision remain outside those checks.
 
 The full candidate graph's logical unique saved-storage estimates are
 7,316,105,712bytes forB24 and29,262,895,872bytes forB96. These are not measured
@@ -322,10 +296,6 @@ The two legacy unused ``backbone.last_layer`` parameters stay in the model,
 constructor RNG andoptimizer ordering even though features-only training gives
 them no gradient. Resource preflights retain8GiB reserves;no batch orprecision
 reduction is used to obtain alignment.
-
-Original run IDs,raw tensors,commands,environment,snapshots,failures andresource
-receipts are indexed in
-``experiments/detector_rewrite/prodet_preparation_audit_20261104.json``.
 
 
 Author weights through the unified engine
@@ -352,3 +322,5 @@ as other ProDet checkpoints. Existing destinations are rejected, not overwritten
 Importing weights does not resume optimizer/RNG state, select an epoch, train the
 model or reproduce its original training run. Test manifests retain the declared
 32-frame budget; image domains use FrameAUC and video domains report VideoAUC.
+
+*Created by Codex.*

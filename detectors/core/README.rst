@@ -1,5 +1,5 @@
-Independent CORE rewrite
-========================
+CORE
+====
 
 CORETask composes the native Xception backbone, a logit-only detector interface
 and a method-owned CORETrainer. The detector also exposes forward_outputs for
@@ -25,12 +25,12 @@ the fixed objective coefficient; they restore without old sources or weight
 files. The common checkpoint converter is supported. No legacy imports or
 optional model packages are used in production.
 
-The CORE FF++ configuration uses batch 32, Adam defaults and 10 epochs. It uses
-FF++ manifests and selects checkpoints by source validation. The original
-configuration uses FF-NT. CORE pairs images by batch halves.
+Run ``uv run python engine.py fit --model core``. The shared FF++ preset uses
+batch 32, Adam with learning rate 0.0002 and an 11-epoch limit. It selects the
+best checkpoint on the source validation split.
 
 The native-resolution batch-2 differential compares the actual local detector,
-ConsistencyCos and backbone definitions with the rewrite, including auxiliary
+ConsistencyCos and backbone definitions with this implementation, including auxiliary
 features, full loss, gradients, BN buffers and one Adam update. Unit tests also
 cover positional/odd pairing, singleton failure, strict checkpoint conversion
 and the native-resolution unified workflow. ImageNet initialization is a separate
@@ -38,3 +38,5 @@ gate; the binary head is seeded rather than trained in that check. Historical
 trained-detector scores and full-dataset reproduction remain unverified. Use
 tools/bounded_run.py for model checks and tools/test_cpu.py for serial capped
 regression.
+
+*Created by Codex.*

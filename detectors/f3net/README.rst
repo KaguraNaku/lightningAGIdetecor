@@ -1,5 +1,5 @@
-Independent local F3Net rewrite
-===============================
+F3Net
+=====
 
 F3NetTask composes four-band frequency-aware decomposition with a twelve-channel
 full Xception and shared whole-batch CE training. The checked local detector has
@@ -23,10 +23,9 @@ random construction retains the same structural replacement order. Missing files
 fail without random fallback or automatic download. Strict raw conversion and
 standalone restore preserve geometry, masks, DCT tensors, stem and dropout.
 
-Native preprocessing is RGB cubic resize to 256, mean/std 0.5, no augmentation.
-The FF++ configuration uses batch 32, the original optimizer defaults and source
-validation. The original configuration uses FF-NT. Training uses whole batches.
-The source manifests define sample membership and order.
+Run ``uv run python engine.py fit --model f3net``. The FF++ preset resizes RGB
+images to 256 with cubic interpolation and mean/std 0.5. It uses whole batches
+of 32, Adam with learning rate 0.0002 and source validation for selection.
 
 Native-resolution batch-2 fixtures check fresh initialization, preprocessing,
 FAD output, classifier-visible features, logits, CE, gradients, BN buffers and
@@ -36,3 +35,5 @@ and seeded untrained head. Unit tests cover spectral boundaries, residuals,
 initialization, strict conversion and native-resolution train/save/restore/
 evaluate. Historical trained scores and full experiments remain unverified.
 Run model checks with bounded_run.py and complete CPU regression with test_cpu.py.
+
+*Created by Codex.*

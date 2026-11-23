@@ -1,12 +1,16 @@
-Independent GenD CLIP adapter
-==============================
+GenD CLIP
+=========
 
-GenDTask composes GenDDetector, a lazy CLIP encoder and the shared whole-batch
-trainer. The default yermandy/GenD_CLIP_L_14 recipe uses LinearNorm.
-The Task defines the default vision architecture and supports linear and LinearNorm
-heads explicitly. External GenD's DINO and Perception alternatives are not
-connected by this CLIP recipe. Production never imports the GenD checkout or
-modifies sys.path.
+``GenDTask`` composes ``GenDDetector``, a CLIP encoder and ``GenDTrainer``.
+The shared preset trains the encoder's LayerNorms and the LinearNorm head, uses
+the author's PIL augmentation, and optimizes CE plus 0.5 uniformity and 0.1 label
+alignment. It trains on FF++ with logical batches of 128, AdamW at 0.0003,
+zero weight decay, a 10-epoch cosine restart period and a 30-epoch limit.
+
+Run ``uv run python engine.py fit --model gend``. For output gradient caching in FP32,
+set ``models.gend.fit.gradient_cache_microbatch_size`` in
+``configs/config.yaml``. The objective and optimizer step still operate on
+the full logical batch. Add ``--timing`` for a run-level ``timing.json``.
 
 Native semantics
 -----------------
@@ -20,27 +24,21 @@ forward. It remains frozen.
 The source unfreezes feature-extractor parameters whose names contain norm or
 ln, and freezes all other feature-extractor parameters. The full head remains
 trainable. At native geometry this yields102 trainable parameter tensors.
-The complete model forward disables autocast, retaining the source's CUDA
-FP32 policy; the adapter also disables CPU autocast. Tests verify actual gradient
-presence rather than relying solely on requires_grad flags. CE and Adam remain
-the source definitions. Native Adam enrolls frozen parameters too; the shared
-trainer filters them. Named optimizer state and every updated/frozen tensor
-are checked to establish equivalent active updates. Exact resume across these
-different optimizer index layouts is not claimed.
+The complete model forward disables autocast on CPU and CUDA. Tests check
+actual gradients and updates for trainable tensors.
 
-The ordinary task prediction path softmaxes two classification logits. Shared
-RGB cubic resize and the source CLIP mean/std are used; the external image
-processor is not used by DeepfakeBench's tensor forward. Augmentation defaults
-to disabled, as in gend.yaml.
+The Task reports the fake-class probability from its two logits. The author
+training profile applies PIL augmentation during training and uses CLIP
+normalization for training and evaluation.
 
 Checkpoint identity and imports
 --------------------------------
 
-Default loading is offline-only and pins the published model revision
-891ce014a0308386c4d7d25b3dcf436a22db5504. The Task defines the vision architecture
-and head, and loads the weights from the cache. Explicit initialization: random
-is available for constructed fixtures.
-Custom geometry requires that option or an explicit raw checkpoint.
+The shared training preset starts from the cached OpenAI CLIP ViT-L/14
+backbone with a fresh head. The Task can also load the published
+``yermandy/GenD_CLIP_L_14`` model at revision
+``891ce014a0308386c4d7d25b3dcf436a22db5504``. Custom geometry requires explicit
+random initialization or a compatible raw checkpoint.
 
 initial_checkpoint accepts raw GenD keys (feature_extractor and model.linear)
 or DeepfakeBench wrapper keys (model.feature_extractor and model.model.linear).
@@ -89,9 +87,10 @@ injected negative second validation score; this tests control flow, not accuracy
 Large temporary workflow snapshots use the system temporary directory. Bounded
 test logs identify their paths. Successful temporary test fixtures are removed.
 
-The example preserves train batch24/eval batch32, Adam lr2e-4/decay5e-4,
-disabled augmentation and no scheduler. Eleven sweeps match source epochs0..10.
-The training configuration selects checkpoints on the source validation manifest.
-Historical benchmark checkpoint scores, GPU numerical alignment and
-full-dataset reproduction remain unverified. All model checks use bounded_run.py:
-one CPU job, RAM3072MiB, swap0, CPU2 and host RAM/disk reserve4096MiB.
+The reference CE/Adam audit used train batch 24, evaluation batch 32 and
+disabled augmentation. The shared training preset selects checkpoints on the
+source validation manifest. To resume, pass a fitted ``model.pth`` to
+``--checkpoint`` and keep the paired ``best.pth``, which stores the selected
+epoch's optimizer, scheduler, gradient-cache settings and RNG state.
+
+*Created by Codex.*

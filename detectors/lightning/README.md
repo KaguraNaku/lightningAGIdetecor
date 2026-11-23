@@ -5,16 +5,16 @@ features from selected blocks of a frozen vision backbone.
 
 | Module | Object | Responsibility |
 |---|---|---|
-| `task.py` | `LightningTask` | Source fitting, independent validation, prediction and checkpoint state |
+| `task.py` | `LightningTask` | Fitting, resume, validation and prediction |
+| `config.py` | | Defaults for the backbone, selected layers, projection rank and Ridge strength |
 | `encoder.py` | `VisionEncoder` | Global and patch-mean features from frozen vision blocks |
 | `detector.py` | `LightningDetector` | Equal raw-score fusion without target calibration |
 | `model.py` | `AnalyticReadout` | Fixed maps, sufficient-statistic updates and analytic solutions |
 
 `SpectralMapping`, `SufficientStatistics` and `MappingAccumulator` are the small
-reusable numerical objects used by `AnalyticReadout`. Fitting streams moments;
-it does not retain a new per-image feature matrix. The FF++ source statistics
-are included once. Incremental source blocks inherit the selected parent head
-and its statistics without replaying old image IDs.
+reusable numerical objects used by `AnalyticReadout`. Fitting accumulates
+moments batch by batch. Continued fitting starts with the saved statistics
+and rejects repeated training image IDs.
 
 Use `engine.py fit --model lightning` with the shared
 [`configs/config.yaml`](../../configs/config.yaml). Select the training and
@@ -22,8 +22,9 @@ validation inputs with `--train-input` and `--validation-input`. A fresh fit
 learns its mapping from the selected source. For the paper's FF++ mapping,
 set `models.lightning.settings.mapping_path`.
 
-For continued fitting, pass the previous fit's `model.pth` with
-`--checkpoint`. It supplies the backbone, layers, mapping and Ridge strength.
+Pass a fitted `model.pth` to `--checkpoint` to continue from its encoder,
+mapping, Ridge strength and accumulated statistics. Use `--train-input` to
+select the next set of images. The validation input provides metrics.
 
 Edit [`config.py`](config.py) to change the backbone, layers, projection rank
 or Ridge strength for new fits. Use a Hugging Face ID or an absolute path to

@@ -1,7 +1,7 @@
-Independent Xception rewrite
-============================
+Xception
+========
 
-The rewritten backbone retains the original convolution, separable convolution,
+The backbone retains the original convolution, separable convolution,
 residual block and BatchNorm layout, including checkpoint names and the unused
 adjustment branch. The ordinary original/shallow_xception classification paths
 are supported. Other specialized channel-adjustment variants require a separate
@@ -20,7 +20,9 @@ missing old BatchNorm counters and classifier/unused adjustment parameters.
 Unexpected body keys or shapes fail. Trained detector imports and self-contained
 restoration load strictly.
 
-The Xception entry in configs/config.yaml requires a local initialization path.
-It selects checkpoints on the source validation split. Use
-tools/bounded_run.py for execution. Do not change batch size or claim a full
-training run simply to avoid a resource limit; retain the failed bounded run.
+The Xception entry in ``configs/config.yaml`` uses ImageNet weights at
+``${WEIGHT_ROOT}/xception-b5690688.pth``. Run
+``uv run python engine.py fit --model xception``. Training selects the best
+checkpoint on the source validation split.
+
+*Created by Codex.*

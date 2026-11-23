@@ -11,6 +11,7 @@ from .transforms import ImageTransform
 class ImageClassificationTask:
     trainer_class = ImageClassificationTrainer
     default_epochs = None
+    default_allow_tf32 = False
 
     def __init__(self, model, *, preprocessing, origin, construction=None, ready=False):
         self.model = model
