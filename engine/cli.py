@@ -34,6 +34,7 @@ def execute(
     from data.loader import create_input_loader
     from data.manifest import sha256
 
+    from .accelerator import set_tf32, tf32_flags
     from .config import input_settings, read_experiment
     from .evaluate import evaluate
     from .fit import CheckpointReference, create_training_task, fit, restore
@@ -99,8 +100,8 @@ def execute(
             task = create_training_task(config)
         default_tf32 = getattr(task, "default_allow_tf32", None)
         if runtime.device.type == "cuda" and "allow_tf32" not in config["runtime"] and default_tf32 is not None:
-            previous_tf32 = torch.backends.cuda.matmul.allow_tf32, torch.backends.cudnn.allow_tf32
-            Runtime.set_tf32(default_tf32)
+            previous_tf32 = tf32_flags()
+            set_tf32(default_tf32, default_tf32)
             config["runtime"]["allow_tf32"] = default_tf32
         (directory / "resolved-config.yaml").write_text(
             yaml.safe_dump(config, sort_keys=False)
@@ -185,7 +186,7 @@ def execute(
         raise
     finally:
         if previous_tf32 is not None:
-            torch.backends.cuda.matmul.allow_tf32, torch.backends.cudnn.allow_tf32 = previous_tf32
+            set_tf32(*previous_tf32)
         status["finished_at"] = datetime.now(timezone.utc).isoformat()
         atomic_save(directory / "run.json", status)
         if runtime is not None and runtime.timer is not None:
@@ -230,7 +231,7 @@ def main(argv=None):
         command.add_argument("--datasets", type=Path, help="Dataset registry YAML")
         command.add_argument("--env-file", type=Path)
         command.add_argument("--output-dir", type=Path)
-        command.add_argument("--device")
+        command.add_argument("--device", help="cpu, auto, or an available PyTorch accelerator such as cuda:0")
         command.add_argument("--precision", choices=["fp32", "fp16", "bf16"])
         if name != "check":
             command.add_argument(

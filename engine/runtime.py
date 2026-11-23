@@ -16,6 +16,7 @@ import uuid
 import numpy as np
 import torch
 
+from .accelerator import resolve_device, set_tf32, validate_precision
 from .gpu_timing import GPUTimeRecorder
 from .task import ExperimentTask
 
@@ -28,36 +29,27 @@ class Runtime:
 
     @classmethod
     def create(cls, settings, seed, *, timing=False):
+        device = resolve_device(settings["device"])
+        precision = settings["precision"]
+        validate_precision(device, precision)
         random.seed(seed)
         np.random.seed(seed)
         torch.manual_seed(seed)
-        device = torch.device(settings["device"])
-        if device.type not in ("cpu", "cuda"):
-            raise ValueError("Supported devices are cpu and cuda")
-        if device.type == "cuda":
-            if not torch.cuda.is_available():
-                raise ValueError("CUDA was requested but is unavailable")
-            if device.index is not None and device.index >= torch.cuda.device_count():
-                raise ValueError("CUDA device index is out of range")
-            if settings["precision"] == "bf16" and not torch.cuda.is_bf16_supported():
-                raise ValueError("CUDA device does not support bf16")
-        if device.type == "cpu" and settings["precision"] == "fp16":
-            raise ValueError("fp16 requires CUDA; use fp32 or bf16 on CPU")
-        if "allow_tf32" in settings:
-            cls.set_tf32(settings["allow_tf32"])
+        if device.type == "cuda" and "allow_tf32" in settings:
+            set_tf32(settings["allow_tf32"], settings["allow_tf32"])
         timer = GPUTimeRecorder(device=device) if timing else None
-        return cls(device, settings["precision"], timer)
+        return cls(device, precision, timer)
 
-    @staticmethod
-    def set_tf32(enabled):
-        torch.backends.cuda.matmul.allow_tf32 = enabled
-        torch.backends.cudnn.allow_tf32 = enabled
+    def grad_scaler(self):
+        if self.precision == "fp16" and self.device.type == "mps":
+            raise ValueError("Use fp32 or bf16 for training on MPS")
+        return torch.amp.GradScaler(self.device.type, enabled=self.precision == "fp16")
 
     def time_region(self, phase, *, samples=None):
         if self.timer is None:
             return nullcontext()
         if samples is None:
-            return self.timer.region(phase, is_batch=False, measure_cuda=False)
+            return self.timer.region(phase, is_batch=False, measure_device=False)
         return self.timer.region(phase, samples=samples)
 
     def autocast(self):

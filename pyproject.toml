@@ -18,6 +18,9 @@ dependencies = [
 [project.scripts]
 engine = "engine.cli:main"
 
+[dependency-groups]
+dev = ["ruff==0.17.1"]
+
 [tool.setuptools.packages.find]
 include = ["backbones*", "models*", "detectors*", "data*", "configs*", "engine*"]
 
@@ -25,6 +28,17 @@ include = ["backbones*", "models*", "detectors*", "data*", "configs*", "engine*"
 configs = ["*.yaml", "manifests/*.jsonl"]
 "detectors.forada" = ["*.json", "LICENSE.*", "README.md"]
 
+[tool.ruff]
+target-version = "py311"
+extend-exclude = ["experiments", "manifests", "outputs"]
+
 [tool.ruff.lint]
-select = ["F", "B"]
+select = ["E4", "E9", "F", "B", "TID251"]
 ignore = ["B904"]
+
+[tool.ruff.lint.flake8-tidy-imports.banned-api]
+"torch.cuda".msg = "Use torch.accelerator or a device-aware API."
+"torch.backends.cuda".msg = "Keep CUDA-only backend controls in engine/accelerator.py."
+"torch.backends.cudnn".msg = "Keep cuDNN-only backend controls in engine/accelerator.py."
+"torch.Tensor.cuda".msg = "Use tensor.to(device)."
+"torch.nn.Module.cuda".msg = "Use module.to(device)."

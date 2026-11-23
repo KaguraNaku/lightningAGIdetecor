@@ -17,6 +17,8 @@ import tempfile
 import torch
 from torch import nn
 
+from engine.accelerator import cuda_metadata
+
 from data.manifest import sha256
 from engine.evaluate import coverage, evaluate
 from engine.runtime import atomic_save
@@ -254,7 +256,7 @@ class ImageClassificationTrainer:
             prepare(parent)
         del parent
         optimizer = self.build_optimizer(settings)
-        scaler = torch.amp.GradScaler("cuda", enabled=runtime.precision == "fp16")
+        scaler = runtime.grad_scaler()
         checkpoint.restore(self, optimizer, scaler)
         output = Path(output_dir)
         output.mkdir(parents=True, exist_ok=True)
@@ -297,8 +299,7 @@ class ImageClassificationTrainer:
                 "precision": runtime.precision,
                 "device": str(runtime.device),
                 "float32_matmul_precision": torch.get_float32_matmul_precision(),
-                "cudnn_allow_tf32": torch.backends.cudnn.allow_tf32,
-                "matmul_allow_tf32": torch.backends.cuda.matmul.allow_tf32,
+                **cuda_metadata(runtime.device),
                 "exact_training_resume_supported": checkpoint.resumable,
                 "resume_scope": "selected epoch" if checkpoint.resumable else None,
             },

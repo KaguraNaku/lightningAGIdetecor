@@ -5,6 +5,7 @@ from uuid import uuid4
 import numpy as np
 import torch
 
+from .accelerator import get_device_rng_state, set_device_rng_state
 from .fit import read_checkpoint
 
 
@@ -89,10 +90,12 @@ def restore_training_state(saved, trainer, optimizer, scaler, loader, validation
     random.setstate(saved["python_rng"])
     kind, state, *tail = saved["numpy_rng"]
     np.random.set_state((kind, np.asarray(state, dtype=np.uint32), *tail))
-    if runtime.device.type == "cuda":
-        if len(saved["cuda_rng"]) != torch.cuda.device_count():
-            raise ValueError("Checkpoint CUDA RNG device count differs")
-        torch.cuda.set_rng_state_all(saved["cuda_rng"])
+    if runtime.device.type != "cpu":
+        states = saved.get("accelerator_rng", saved.get("cuda_rng", []))
+        if len(states) != torch.accelerator.device_count():
+            raise ValueError("Checkpoint accelerator RNG device count differs")
+        for index, state in enumerate(states):
+            set_device_rng_state(torch.device(runtime.device.type, index), state)
 
 
 class TrainingSnapshot:
@@ -120,6 +123,7 @@ class TrainingSnapshot:
     def capture(self, trainer, optimizer, scaler):
         numpy_rng = np.random.get_state()
         train = loader_state(self.loader)
+        device_type = self.runtime.device.type
         state = {
             "state_dict": trainer.model.state_dict(),
             "optimizer": optimizer.state_dict(),
@@ -127,13 +131,16 @@ class TrainingSnapshot:
             "torch_rng": torch.get_rng_state(),
             "python_rng": random.getstate(),
             "numpy_rng": [numpy_rng[0], numpy_rng[1].tolist(), *numpy_rng[2:]],
-            "cuda_rng": torch.cuda.get_rng_state_all() if self.runtime.device.type == "cuda" else [],
+            "accelerator_rng": [
+                get_device_rng_state(torch.device(device_type, index))
+                for index in range(torch.accelerator.device_count() if device_type != "cpu" else 0)
+            ],
             "training_state": {
                 "id": self.id,
                 "optimizer_type": qualified(optimizer),
                 "optimizer_parameter_names": optimizer_names(trainer, optimizer),
                 "loaders": {"train": train, "validation": loader_state(self.validation_loader)},
-                "device_type": self.runtime.device.type,
+                "device_type": device_type,
                 "precision": self.runtime.precision,
             },
         }

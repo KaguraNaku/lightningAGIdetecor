@@ -11,6 +11,8 @@ import numpy as np
 import torch
 from torch import nn
 
+from engine.accelerator import get_device_rng_state, set_device_rng_state
+
 from .detector import GenDDetector
 from .encoder import GenDCLIPEncoder
 
@@ -20,20 +22,20 @@ class ForwardRandomState:
     python: object
     numpy: tuple
     torch_cpu: torch.Tensor
-    cuda: torch.Tensor | None
+    accelerator: torch.Tensor | None
     device: torch.device
 
     @classmethod
     def capture(cls, device):
-        return cls(random.getstate(), np.random.get_state(), torch.get_rng_state(),
-                   torch.cuda.get_rng_state(device) if device.type == "cuda" else None, device)
+        accelerator = get_device_rng_state(device) if device.type != "cpu" else None
+        return cls(random.getstate(), np.random.get_state(), torch.get_rng_state(), accelerator, device)
 
     def restore(self):
         random.setstate(self.python)
         np.random.set_state(self.numpy)
         torch.set_rng_state(self.torch_cpu)
-        if self.cuda is not None:
-            torch.cuda.set_rng_state(self.cuda, self.device)
+        if self.accelerator is not None:
+            set_device_rng_state(self.device, self.accelerator)
 
 
 class GenDGradientCache:

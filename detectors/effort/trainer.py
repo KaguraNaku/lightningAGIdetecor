@@ -10,6 +10,7 @@ import torch
 from torch.nn import functional as F
 
 from data.manifest import sha256
+from engine.accelerator import cuda_metadata
 from engine.training_state import TrainingSnapshot
 from engine.evaluate import coverage, evaluate
 from engine.runtime import atomic_save
@@ -84,7 +85,7 @@ class EffortTrainer:
             parameters, lr=lr, betas=(0.9, 0.999), eps=1e-8,
             weight_decay=decay, amsgrad=False,
         )
-        scaler = torch.amp.GradScaler("cuda", enabled=runtime.precision == "fp16")
+        scaler = runtime.grad_scaler()
         training_snapshot = TrainingSnapshot(settings, loader, validation_loader, runtime)
         training_snapshot.restore(self, optimizer, scaler)
         root = Path(output_dir)
@@ -105,12 +106,8 @@ class EffortTrainer:
                 "torch", "transformers", "albumentations", "numpy", "opencv-python-headless",
             )},
             "device": str(runtime.device), "precision": runtime.precision,
-            "gpu": torch.cuda.get_device_name(runtime.device) if runtime.device.type == "cuda" else None,
             "float32_matmul_precision": torch.get_float32_matmul_precision(),
-            "cudnn_allow_tf32": torch.backends.cudnn.allow_tf32,
-            "matmul_allow_tf32": torch.backends.cuda.matmul.allow_tf32,
-            "cudnn_benchmark": torch.backends.cudnn.benchmark,
-            "cudnn_deterministic": torch.backends.cudnn.deterministic,
+            **cuda_metadata(runtime.device),
             "deterministic_algorithms": torch.are_deterministic_algorithms_enabled(),
             "trainable_parameters": sum(p.numel() for p in parameters),
             "objective": "cross_entropy", "optimizer": "Adam", "betas": [0.9, 0.999],
