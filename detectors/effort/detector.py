@@ -13,7 +13,9 @@ class EffortDetector(nn.Module):
         self.retained_rank = (
             vision.config.hidden_size - 1 if retained_rank is None else retained_rank
         )
-        self.backbone = replace_attention(vision, self.retained_rank, initialize=initialize)
+        self.backbone = replace_attention(
+            vision, self.retained_rank, initialize=initialize
+        )
         self.head = nn.Linear(vision.config.hidden_size, 2)
 
     def forward(self, images):

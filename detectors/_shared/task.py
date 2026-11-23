@@ -78,7 +78,12 @@ class ImageClassificationTask:
 
     def unpack_state(self, state):
         self.validate_state(state)
-        return state["construction"], state["preprocessing"], state["origin"], state["state_dict"]
+        return (
+            state["construction"],
+            state["preprocessing"],
+            state["origin"],
+            state["state_dict"],
+        )
 
     @staticmethod
     def validate_state(state):

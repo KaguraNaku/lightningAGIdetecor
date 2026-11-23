@@ -32,7 +32,11 @@ class DataConfig:
         return cls(registry, env_file)
 
     def __init__(
-        self, path: Path | str | None = None, env_file: Path | str | None = None, *, settings=None
+        self,
+        path: Path | str | None = None,
+        env_file: Path | str | None = None,
+        *,
+        settings=None,
     ):
         self.path = Path(path or DEFAULT_CONFIG).resolve()
         self.env_file = Path(env_file or default_env_file())

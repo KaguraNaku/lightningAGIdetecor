@@ -40,7 +40,9 @@ def prepare_manifest(
     settings = config.dataset(name)
     adapter = settings.get("adapter")
     if adapter is None:
-        raise ValueError(f"{name}: select its existing manifest from the configured inputs")
+        raise ValueError(
+            f"{name}: select its existing manifest from the configured inputs"
+        )
     prepare = ADAPTERS.get(adapter)
     if prepare is None:
         raise ValueError(f"Unknown adapter: {adapter}")

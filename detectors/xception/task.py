@@ -27,7 +27,9 @@ class XceptionTask(ImageClassificationTask):
                 augmentation=settings.get("augmentation", True),
                 data_aug={"rotate_prob": 0.0, **settings.get("data_aug", {})},
             )
-            weights, receipt = read_initial_detector_weights(settings, detector="Xception")
+            weights, receipt = read_initial_detector_weights(
+                settings, detector="Xception"
+            )
             origin = {"method": "xception", "objective": "cross_entropy", **receipt}
 
         def build():

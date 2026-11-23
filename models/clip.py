@@ -14,5 +14,6 @@ def initialize_clip_position_ids(model):
     for module in model.modules():
         if hasattr(module, "position_ids") and hasattr(module, "position_embedding"):
             module.position_ids = torch.arange(
-                module.position_embedding.num_embeddings, device="cpu",
+                module.position_embedding.num_embeddings,
+                device="cpu",
             ).unsqueeze(0)

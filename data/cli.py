@@ -22,9 +22,16 @@ def prepare_main(argv=None):
     parser.add_argument("--split", required=True, choices=["train", "val", "test"])
     parser.add_argument("--output", type=Path)
     parser.add_argument("--frames-per-video", type=int)
-    parser.add_argument("--model", choices=[spec.name for spec in ModelRegistry.SPECS],
-                        help="Use a detector's manifest preparer")
-    parser.add_argument("--source-manifest", type=Path, help="Existing manifest for detector-specific preparation")
+    parser.add_argument(
+        "--model",
+        choices=[spec.name for spec in ModelRegistry.SPECS],
+        help="Use a detector's manifest preparer",
+    )
+    parser.add_argument(
+        "--source-manifest",
+        type=Path,
+        help="Existing manifest for detector-specific preparation",
+    )
     parser.add_argument(
         "--limit",
         type=int,
@@ -40,11 +47,21 @@ def prepare_main(argv=None):
         model = {"factory": ModelRegistry.get(args.model).factory}
         prepare = getattr(task_factory(model), "prepare_manifest", None)
         if prepare is None:
-            parser.error(f"{args.model} does not provide a detector-specific manifest preparer")
+            parser.error(
+                f"{args.model} does not provide a detector-specific manifest preparer"
+            )
         dataset = ManifestDataset(args.source_manifest, config)
-        if (dataset.header["dataset"], dataset.header["split"]) != (args.dataset, args.split):
+        if (dataset.header["dataset"], dataset.header["split"]) != (
+            args.dataset,
+            args.split,
+        ):
             parser.error("--dataset and --split must match the source manifest")
-        report = prepare(dataset, output=args.output, config=config, frames_per_video=args.frames_per_video)
+        report = prepare(
+            dataset,
+            output=args.output,
+            config=config,
+            frames_per_video=args.frames_per_video,
+        )
         print(json.dumps(report, indent=2))
         return
     if args.source_manifest is not None:

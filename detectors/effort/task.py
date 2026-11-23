@@ -38,12 +38,16 @@ class EffortTask(ImageClassificationTask):
             self.validate_state(state)
             self.attention = state["attention_implementation"]
             config = CLIPVisionConfig.from_dict(state["vision_config"])
-            model = self._restore_model(config, state["retained_rank"], state["state_dict"])
+            model = self._restore_model(
+                config, state["retained_rank"], state["state_dict"]
+            )
             preprocessing = state["preprocessing"]
             origin = state["origin"]
             imported = True
 
-        super().__init__(model, preprocessing=preprocessing, origin=origin, ready=imported)
+        super().__init__(
+            model, preprocessing=preprocessing, origin=origin, ready=imported
+        )
         self._device = None
 
     def _new_model(self, settings):
@@ -71,7 +75,9 @@ class EffortTask(ImageClassificationTask):
             rank = settings.get("retained_rank", config.hidden_size - 1)
             return self._restore_model(config, rank, weights), config, origin, True
 
-        vision = load_backbone(model_id, "vision", attn_implementation=self.attention, **options)
+        vision = load_backbone(
+            model_id, "vision", attn_implementation=self.attention, **options
+        )
         config = vision.config
         self.vision_config = config.to_dict()
         rank = settings.get("retained_rank", config.hidden_size - 1)
@@ -82,12 +88,18 @@ class EffortTask(ImageClassificationTask):
         config._attn_implementation = self.attention
 
         def build():
-            return EffortDetector(CLIPVisionModel(config), retained_rank=rank, initialize=False)
+            return EffortDetector(
+                CLIPVisionModel(config), retained_rank=rank, initialize=False
+            )
 
-        return restore_model(build, weights, initialize_buffers=initialize_clip_position_ids)
+        return restore_model(
+            build, weights, initialize_buffers=initialize_clip_position_ids
+        )
 
     def build_collator(self, *, training):
-        return ImageCollator(transform=make_transform(self.preprocessing, training=training))
+        return ImageCollator(
+            transform=make_transform(self.preprocessing, training=training)
+        )
 
     def fit(self, loader, **kwargs):
         self._device = None
@@ -102,7 +114,9 @@ class EffortTask(ImageClassificationTask):
             self._device = runtime.device
         self.model.eval()
         with runtime.autocast():
-            return self.model(images.to(runtime.device, non_blocking=True)).softmax(dim=1)[:, 1]
+            return self.model(images.to(runtime.device, non_blocking=True)).softmax(
+                dim=1
+            )[:, 1]
 
     def checkpoint_metadata(self):
         return {

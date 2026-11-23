@@ -15,7 +15,13 @@ class FaceHullMask:
             groups = [
                 (points[0:17], points[48:68], points[0:1], points[8:9], points[16:17]),
                 (points[27:31], points[33:34]),
-                (points[17:27], points[0:1], points[27:28], points[16:17], points[33:34]),
+                (
+                    points[17:27],
+                    points[0:1],
+                    points[27:28],
+                    points[16:17],
+                    points[33:34],
+                ),
             ]
         elif kind in (1, 2):
             if kind == 1:
@@ -52,7 +58,9 @@ class FaceHullMask:
             )
             return mask[:, :, 0] / 255
         else:
-            raise ValueError("Only the four configured whole-face SBI hulls are connected")
+            raise ValueError(
+                "Only the four configured whole-face SBI hulls are connected"
+            )
         for group in groups:
             cv2.fillConvexPoly(mask, cv2.convexHull(np.concatenate(group)), 255.0)
         return mask[:, :, 0] / 255

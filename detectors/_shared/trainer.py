@@ -252,7 +252,10 @@ class ImageClassificationTrainer:
         self.objective.to(runtime.device)
         checkpoint = TrainingSnapshot(settings, loader, validation_loader, runtime)
         parent = checkpoint.parent
-        if parent is not None and (prepare := getattr(self, "prepare_resume", None)) is not None:
+        if (
+            parent is not None
+            and (prepare := getattr(self, "prepare_resume", None)) is not None
+        ):
             prepare(parent)
         del parent
         optimizer = self.build_optimizer(settings)

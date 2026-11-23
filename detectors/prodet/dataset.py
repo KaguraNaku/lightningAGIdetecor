@@ -149,7 +149,11 @@ class ProDetDataset:
         # Normalize Python's negative indexing for the static view inventory.
         if index < 0:
             index += len(self)
-        before, selected, operation = RandomState.capture(), None, "control_file_verification"
+        before, selected, operation = (
+            RandomState.capture(),
+            None,
+            "control_file_verification",
+        )
         try:
             self._check_controls()
             real_id, fake_id = pair["real_id"], pair["fake_id"]

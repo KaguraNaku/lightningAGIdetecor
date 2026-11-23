@@ -22,9 +22,16 @@ def _select_experiment(config, model_name, training_input, *, require_fit):
     if training_input is not None:
         fit["input"] = training_input
     source = config["inputs"].get(fit.get("input"), {})
-    model = {"factory": spec.factory, **profile.get("settings", {}),
-             **source.get("model_settings", {}).get(model_name, {})}
-    if require_fit and model_name in ModelRegistry.NATIVE_CLASSES and source.get("dataset") == "UniversalFakeDetect":
+    model = {
+        "factory": spec.factory,
+        **profile.get("settings", {}),
+        **source.get("model_settings", {}).get(model_name, {}),
+    }
+    if (
+        require_fit
+        and model_name in ModelRegistry.NATIVE_CLASSES
+        and source.get("dataset") == "UniversalFakeDetect"
+    ):
         fit.setdefault("ufd", {"regime": "fresh_UFD"})
 
     sampling = config.get("video_sampling", {})
@@ -39,29 +46,50 @@ def _select_experiment(config, model_name, training_input, *, require_fit):
         manifest = item["manifest"]
         if "{frames}" in manifest:
             count = frames_for(item["split"], sampling)
-            if config["datasets"][item["dataset"]]["media_type"] != "video" or count is None:
-                raise ValueError(f"Input {name} requires a video dataset and a configured frame count")
+            if (
+                config["datasets"][item["dataset"]]["media_type"] != "video"
+                or count is None
+            ):
+                raise ValueError(
+                    f"Input {name} requires a video dataset and a configured frame count"
+                )
             manifest = manifest.replace("{frames}", str(count))
         inputs[name] = {**stage_options[item["split"]], **item, "manifest": manifest}
     return {
-        "version": config["version"], "seed": config["seed"],
-        "datasets": config["datasets"], "video_sampling": sampling,
+        "version": config["version"],
+        "seed": config["seed"],
+        "datasets": config["datasets"],
+        "video_sampling": sampling,
         "runtime": {**config.get("runtime", {}), **profile.get("runtime", {})},
-        "model": model, "fit": fit, "inputs": inputs,
+        "model": model,
+        "fit": fit,
+        "inputs": inputs,
         "loader": {**config.get("loader", {}), **profile.get("loader", {})},
         "evaluation": {**config.get("evaluation", {}), **profile.get("evaluation", {})},
     }
 
 
-def read_experiment(path, *, require_fit=True, variables=None, env_file=None,
-                    model_name=None, training_input=None, validation_input=None,
-                    evaluation_inputs=None, checkpoint=None, public=False):
+def read_experiment(
+    path,
+    *,
+    require_fit=True,
+    variables=None,
+    env_file=None,
+    model_name=None,
+    training_input=None,
+    validation_input=None,
+    evaluation_inputs=None,
+    checkpoint=None,
+    public=False,
+):
     with Path(path).open() as stream:
         config = yaml.safe_load(stream)
     if not isinstance(config, dict) or config.get("version") != 1:
         raise ValueError("Experiment must be a mapping with version: 1")
     if "models" in config:
-        config = _select_experiment(config, model_name, training_input, require_fit=require_fit)
+        config = _select_experiment(
+            config, model_name, training_input, require_fit=require_fit
+        )
         if env_file is None:
             default_env = default_env_file()
             if default_env.is_file():
@@ -76,7 +104,9 @@ def read_experiment(path, *, require_fit=True, variables=None, env_file=None,
     if public:
         ModelRegistry.validate_factory(model)
     if require_fit and checkpoint is not None:
-        config.setdefault("fit", {})["checkpoint"] = str(Path(checkpoint).expanduser().resolve())
+        config.setdefault("fit", {})["checkpoint"] = str(
+            Path(checkpoint).expanduser().resolve()
+        )
     factory = model.get("factory", "")
     if require_fit and (
         not isinstance(factory, str)
@@ -150,7 +180,10 @@ def read_experiment(path, *, require_fit=True, variables=None, env_file=None,
             or inputs[validation]["split"] != "val"
         ):
             raise ValueError("fit.validation_input must name a val input")
-        if validation is not None and ModelRegistry.method_for(model) in ModelRegistry.NATIVE_CLASSES:
+        if (
+            validation is not None
+            and ModelRegistry.method_for(model) in ModelRegistry.NATIVE_CLASSES
+        ):
             dataset = inputs[validation]["dataset"]
             media_type = config.get("datasets", {}).get(dataset, {}).get("media_type")
             if media_type == "video":
@@ -203,7 +236,9 @@ def read_experiment(path, *, require_fit=True, variables=None, env_file=None,
         raise ValueError("runtime.allow_tf32 must be a boolean")
     if runtime["log_level"] not in ("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"):
         raise ValueError("Invalid log_level")
-    resources = ResourceResolver(Path(path).resolve().parent, variables=variables, env_file=env_file)
+    resources = ResourceResolver(
+        Path(path).resolve().parent, variables=variables, env_file=env_file
+    )
     for item in inputs.values():
         # Expand variables when opening a selected input. Anchor plain relative
         # paths here so they resolve against the experiment config.
@@ -214,16 +249,25 @@ def read_experiment(path, *, require_fit=True, variables=None, env_file=None,
 
         fit = config["fit"]
         registered = {spec.factory for spec in ModelRegistry.SPECS}
-        selected_task = task_factory(model) if ModelRegistry.resolve_factory(factory) in registered else None
-        if (validate := getattr(selected_task, "validate_fit_config", None)) is not None:
+        selected_task = (
+            task_factory(model)
+            if ModelRegistry.resolve_factory(factory) in registered
+            else None
+        )
+        if (
+            validate := getattr(selected_task, "validate_fit_config", None)
+        ) is not None:
             validate(model, fit, public=public)
         file_fields = getattr(selected_task, "model_file_fields", ())
         if "checkpoint" in fit:
             fit["checkpoint"] = str(resources.path(fit["checkpoint"]))
             fields = getattr(selected_task, "resume_input_fields", ())
-            model.update(resources.model_settings(
-                {key: model[key] for key in fields if key in model}, file_fields=file_fields,
-            ))
+            model.update(
+                resources.model_settings(
+                    {key: model[key] for key in fields if key in model},
+                    file_fields=file_fields,
+                )
+            )
         else:
             config["model"] = resources.model_settings(model, file_fields=file_fields)
         if "ufd" in fit and "checkpoint" not in fit:
@@ -231,7 +275,9 @@ def read_experiment(path, *, require_fit=True, variables=None, env_file=None,
                 raise ValueError("fit.ufd must be a mapping")
             fit["ufd"] = resources.model_settings(fit["ufd"])
     # Outputs may not exist yet; inputs remain the dataset registry's concern.
-    runtime["output_dir"] = str(resources.path(runtime["output_dir"], must_exist=False, kind="directory"))
+    runtime["output_dir"] = str(
+        resources.path(runtime["output_dir"], must_exist=False, kind="directory")
+    )
     return config
 
 

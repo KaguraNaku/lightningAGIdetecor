@@ -34,7 +34,9 @@ class Runtime:
 
     @classmethod
     def create(cls, settings, seed, *, timing=False, group=None):
-        device = group.device if group is not None else resolve_device(settings["device"])
+        device = (
+            group.device if group is not None else resolve_device(settings["device"])
+        )
         precision = settings["precision"]
         validate_precision(device, precision)
         random.seed(seed)

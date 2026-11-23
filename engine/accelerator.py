@@ -4,7 +4,11 @@ import torch
 
 
 def available_accelerator():
-    return torch.accelerator.current_accelerator() if torch.accelerator.is_available() else None
+    return (
+        torch.accelerator.current_accelerator()
+        if torch.accelerator.is_available()
+        else None
+    )
 
 
 def resolve_device(request):
@@ -27,7 +31,11 @@ def validate_precision(device, precision):
     if precision != "fp32" and not torch.amp.is_autocast_available(device.type):
         raise ValueError(f"Autocast is unavailable on {device.type}")
     if device.type == "cuda" and precision == "bf16":
-        index = device.index if device.index is not None else torch.accelerator.current_device_index()
+        index = (
+            device.index
+            if device.index is not None
+            else torch.accelerator.current_device_index()
+        )
         with torch.accelerator.device_index(index):
             supported = torch.cuda.is_bf16_supported()  # noqa: TID251 - CUDA capability query
         if not supported:
@@ -36,7 +44,11 @@ def validate_precision(device, precision):
 
 def get_device_rng_state(device):
     backend = torch.get_device_module(device)
-    return backend.get_rng_state() if device.type == "mps" else backend.get_rng_state(device)
+    return (
+        backend.get_rng_state()
+        if device.type == "mps"
+        else backend.get_rng_state(device)
+    )
 
 
 def set_device_rng_state(device, state):

@@ -50,7 +50,9 @@ class F3NetTask(ImageClassificationTask):
         def build(init_weights=None):
             backbone = Xception(**construction["backbone"])
             if init_weights:
-                origin["pretrained_backbone"] = initialize_backbone(backbone, init_weights)
+                origin["pretrained_backbone"] = initialize_backbone(
+                    backbone, init_weights
+                )
             else:
                 replace_stem(backbone)
             return F3NetDetector(backbone, construction["image_size"])

@@ -117,7 +117,9 @@ class UCFTrainer(ImageClassificationTrainer):
                     specific = specific.to(runtime.device, non_blocking=True)
                     with runtime.autocast():
                         outputs = self.model.forward_outputs(images)
-                        losses = self.model.loss_terms(outputs, images, labels, specific)
+                        losses = self.model.loss_terms(
+                            outputs, images, labels, specific
+                        )
                     loss = losses["overall"]
                     if loss.ndim or not torch.isfinite(loss):
                         atomic_save(

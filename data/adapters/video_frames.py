@@ -26,7 +26,11 @@ def _directory_groups(settings, name, split):
         for directory in sorted(root.glob(pattern), key=lambda path: path.as_posix()):
             if directory.is_dir() and not directory.name.startswith("."):
                 video_id = directory.relative_to(root).as_posix()
-                videos.append(Video(directory, video_id, group["label"], group.get("category", "")))
+                videos.append(
+                    Video(
+                        directory, video_id, group["label"], group.get("category", "")
+                    )
+                )
     return videos
 
 
@@ -44,7 +48,13 @@ def _records(videos, root, name, split, frame_count):
         for image in frames:
             path = image.relative_to(root).as_posix()
             yield Sample(
-                id=f"{name}:{path}", dataset=name, label=video.label, split=split,
-                storage="image", path=path, video_id=video.video_id, category=video.category,
+                id=f"{name}:{path}",
+                dataset=name,
+                label=video.label,
+                split=split,
+                storage="image",
+                path=path,
+                video_id=video.video_id,
+                category=video.category,
                 frame_index=int(image.stem) if image.stem.isdigit() else None,
             )

@@ -23,27 +23,37 @@ class SVDResidualLinear(nn.Module):
             torch.empty(out_features, in_features), requires_grad=False
         )
         self.bias = (
-            nn.Parameter(torch.empty(out_features), requires_grad=False) if bias else None
+            nn.Parameter(torch.empty(out_features), requires_grad=False)
+            if bias
+            else None
         )
         self.U_residual = nn.Parameter(torch.empty(out_features, residual_rank))
         self.S_residual = nn.Parameter(torch.empty(residual_rank))
         self.V_residual = nn.Parameter(torch.empty(residual_rank, in_features))
-        self.U_r = nn.Parameter(torch.empty(out_features, retained_rank), requires_grad=False)
+        self.U_r = nn.Parameter(
+            torch.empty(out_features, retained_rank), requires_grad=False
+        )
         self.S_r = nn.Parameter(torch.empty(retained_rank), requires_grad=False)
-        self.V_r = nn.Parameter(torch.empty(retained_rank, in_features), requires_grad=False)
+        self.V_r = nn.Parameter(
+            torch.empty(retained_rank, in_features), requires_grad=False
+        )
 
     @classmethod
     @torch.no_grad()
     def from_linear(cls, linear, retained_rank, *, initialize=True):
         with torch.device(linear.weight.device):
             module = cls(
-                linear.in_features, linear.out_features, retained_rank,
+                linear.in_features,
+                linear.out_features,
+                retained_rank,
                 bias=linear.bias is not None,
             )
         module.to(dtype=linear.weight.dtype)
         if initialize:
             # Keep the author's operation order, including explicit diagonal matrices.
-            u, s, vh = torch.linalg.svd(linear.weight.detach().float(), full_matrices=False)
+            u, s, vh = torch.linalg.svd(
+                linear.weight.detach().float(), full_matrices=False
+            )
             r = retained_rank
             module.U_r.copy_(u[:, :r])
             module.S_r.copy_(s[:r])
@@ -57,7 +67,10 @@ class SVDResidualLinear(nn.Module):
         return module
 
     def compute_current_weight(self):
-        return self.weight_main + self.U_residual @ torch.diag(self.S_residual) @ self.V_residual
+        return (
+            self.weight_main
+            + self.U_residual @ torch.diag(self.S_residual) @ self.V_residual
+        )
 
     def forward(self, inputs):
         return F.linear(inputs, self.compute_current_weight(), self.bias)
@@ -72,7 +85,10 @@ def replace_attention(vision, retained_rank, *, initialize=True):
             if not isinstance(linear, nn.Linear):
                 raise TypeError(f"Expected an unmodified attention Linear at {name}")
             setattr(
-                layer.self_attn, name,
-                SVDResidualLinear.from_linear(linear, retained_rank, initialize=initialize),
+                layer.self_attn,
+                name,
+                SVDResidualLinear.from_linear(
+                    linear, retained_rank, initialize=initialize
+                ),
             )
     return vision

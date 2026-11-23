@@ -24,7 +24,9 @@ class DistributedRun:
             yield None
             return
         if int(os.environ["LOCAL_WORLD_SIZE"]) != world_size:
-            raise ValueError("Distributed runs require all torchrun workers on a single host")
+            raise ValueError(
+                "Distributed runs require all torchrun workers on a single host"
+            )
         device = resolve_device(request)
         if device.type != "cpu":
             index = int(os.environ["LOCAL_RANK"])

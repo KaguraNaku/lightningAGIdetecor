@@ -4,7 +4,10 @@ from detectors._shared.checkpoint import restore_model
 from detectors._shared.task import ImageClassificationTask
 from detectors._shared.transforms import preprocessing_config
 from detectors.xception.backbone import Xception
-from detectors.xception.checkpoint import initialize_backbone, read_initial_detector_weights
+from detectors.xception.checkpoint import (
+    initialize_backbone,
+    read_initial_detector_weights,
+)
 
 from .detector import COREDetector
 from .trainer import CORETrainer

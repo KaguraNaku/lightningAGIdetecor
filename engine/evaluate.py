@@ -87,7 +87,9 @@ def evaluate(task, loader, *, runtime, settings, output_dir, phase="evaluate"):
     media_type = getattr(loader, "media_type", None)
     accumulator = MetricAccumulator(
         threshold=settings["threshold"],
-        video_aggregation="none" if media_type == "image" else settings["video_aggregation"],
+        video_aggregation="none"
+        if media_type == "image"
+        else settings["video_aggregation"],
         group_by=settings["group_by"],
         prediction_unit=getattr(task, "prediction_unit", "image"),
     )
@@ -106,7 +108,9 @@ def evaluate(task, loader, *, runtime, settings, output_dir, phase="evaluate"):
                 or source.dataset != record["dataset"]
                 or source.split != record["split"]
             ):
-                raise ValueError(f"Prediction identity/label differs from manifest: {sample_id}")
+                raise ValueError(
+                    f"Prediction identity/label differs from manifest: {sample_id}"
+                )
             seen.add(sample_id)
             if accumulator.prediction_unit != "image":
                 record.setdefault("prediction_unit", accumulator.prediction_unit)
@@ -117,7 +121,9 @@ def evaluate(task, loader, *, runtime, settings, output_dir, phase="evaluate"):
         **accumulator.result(),
     }
     if media_type is not None:
-        unit = "video" if report.get("video") is not None else accumulator.prediction_unit
+        unit = (
+            "video" if report.get("video") is not None else accumulator.prediction_unit
+        )
         report["primary_metric"] = f"{unit}.auc"
     os.replace(temporary, output_dir / "predictions.jsonl")
     atomic_save(output_dir / "metrics.json", report)

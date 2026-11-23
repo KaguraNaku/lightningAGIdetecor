@@ -1,4 +1,5 @@
 """Versioned dataset and experiment configuration templates."""
+
 from importlib.resources import files
 from pathlib import Path
 

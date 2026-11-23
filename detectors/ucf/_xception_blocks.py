@@ -2,6 +2,7 @@
 
 from torch import nn
 
+
 class SeparableConv2d(nn.Module):
     def __init__(self, inputs, outputs, kernel_size=1, stride=1, padding=0):
         super().__init__()
@@ -12,6 +13,7 @@ class SeparableConv2d(nn.Module):
 
     def forward(self, images):
         return self.pointwise(self.conv1(images))
+
 
 class Block(nn.Module):
     def __init__(

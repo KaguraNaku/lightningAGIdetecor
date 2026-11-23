@@ -18,15 +18,20 @@ def natural_key(path: Path) -> tuple:
 
 def image_files(directory):
     return sorted(
-        (path for path in directory.iterdir()
-         if path.is_file() and path.suffix.lower() in IMAGE_EXTENSIONS),
+        (
+            path
+            for path in directory.iterdir()
+            if path.is_file() and path.suffix.lower() in IMAGE_EXTENSIONS
+        ),
         key=natural_key,
     )
 
 
 def prepare(settings, name, split, frame_count):
     if frame_count is not None:
-        raise ValueError("Omit frames_per_video for independent images in class folders")
+        raise ValueError(
+            "Omit frames_per_video for independent images in class folders"
+        )
     partition = settings.get("splits", {}).get(split)
     if partition is None:
         raise ValueError(f"{name}: unavailable split {split}")
@@ -41,7 +46,9 @@ def prepare(settings, name, split, frame_count):
     depth = settings.get("group_depth", 0)
     if type(depth) is not int or depth < 0:
         raise ValueError("group_depth must be a nonnegative integer")
-    groups = _class_groups(directory, classes, depth, set(settings.get("ignore_dirs", [])))
+    groups = _class_groups(
+        directory, classes, depth, set(settings.get("ignore_dirs", []))
+    )
     return _records(groups, root, directory, name, split, classes), (), None
 
 
@@ -50,7 +57,11 @@ def _class_groups(directory, classes, depth, ignored):
         yield directory
     elif depth:
         for child in sorted(directory.iterdir(), key=natural_key):
-            if child.is_dir() and not child.name.startswith(".") and child.name not in ignored:
+            if (
+                child.is_dir()
+                and not child.name.startswith(".")
+                and child.name not in ignored
+            ):
                 yield from _class_groups(child, classes, depth - 1, ignored)
 
 
@@ -66,6 +77,12 @@ def _records(groups, root, partition, name, split, classes):
             for image in image_files(directory):
                 path = image.relative_to(root).as_posix()
                 yield Sample(
-                    id=f"{name}:{path}", dataset=name, label=label, split=split,
-                    storage="image", path=path, category=category, metadata=metadata,
+                    id=f"{name}:{path}",
+                    dataset=name,
+                    label=label,
+                    split=split,
+                    storage="image",
+                    path=path,
+                    category=category,
+                    metadata=metadata,
                 )

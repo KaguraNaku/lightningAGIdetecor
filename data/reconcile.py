@@ -34,7 +34,8 @@ def reconcile(
             continue
         video = reference[directory]
         if any(
-            p.is_file() and p.suffix.lower() in IMAGE_EXTENSIONS for p in directory.iterdir()
+            p.is_file() and p.suffix.lower() in IMAGE_EXTENSIONS
+            for p in directory.iterdir()
         ):
             active.append(video)
         else:

@@ -39,7 +39,9 @@ class GenDTask(ImageClassificationTask):
         backbone = None
         if state is None:
             construction, preprocessing, origin = self._training_config(settings)
-            weights, backbone, weight_origin = self._initial_weights(settings, construction)
+            weights, backbone, weight_origin = self._initial_weights(
+                settings, construction
+            )
             origin.update(weight_origin)
         else:
             construction, preprocessing, origin, weights = self.unpack_state(state)
@@ -55,9 +57,13 @@ class GenDTask(ImageClassificationTask):
     @staticmethod
     def _training_config(settings):
         construction = {
-            "vision_config": settings.get("vision_config", DEFAULT_VISION_CONFIG.copy()),
+            "vision_config": settings.get(
+                "vision_config", DEFAULT_VISION_CONFIG.copy()
+            ),
             "head": settings.get("head", DEFAULT_HEAD),
-            "attention_implementation": settings.get("attention_implementation", "sdpa"),
+            "attention_implementation": settings.get(
+                "attention_implementation", "sdpa"
+            ),
             "freeze_policy": "feature_extractor_norm_or_ln_names_plus_complete_head",
             "forward_precision": "float32_autocast_disabled",
             "training_profile": settings.get("training_profile", "author_ln_l2_ua"),
@@ -77,8 +83,13 @@ class GenDTask(ImageClassificationTask):
         if construction["training_profile"] == "author_ln_l2_ua":
             if construction["head"] != "LinearNorm":
                 raise ValueError("Full GenD requires its L2-normalized linear head")
-            if settings.get("data_aug") is not None or settings.get("augmentation") is False:
-                raise ValueError("GenD author profile fixes its PIL augmentation policy")
+            if (
+                settings.get("data_aug") is not None
+                or settings.get("augmentation") is False
+            ):
+                raise ValueError(
+                    "GenD author profile fixes its PIL augmentation policy"
+                )
             preprocessing.pop("data_aug", None)
             preprocessing["profile"] = "gend-author-pil-v1"
             preprocessing["augmentation"] = True
@@ -93,7 +104,9 @@ class GenDTask(ImageClassificationTask):
     def _initial_weights(settings, construction):
         if checkpoint := settings.get("initial_checkpoint"):
             if "head" not in settings:
-                raise ValueError("Raw GenD imports require explicit head: linear or LinearNorm")
+                raise ValueError(
+                    "Raw GenD imports require explicit head: linear or LinearNorm"
+                )
             weights, receipt = read_gend_weights(checkpoint)
             return weights, None, receipt
         if settings.get("initialization") == "pretrained_backbone":
@@ -111,21 +124,33 @@ class GenDTask(ImageClassificationTask):
             )
             actual = backbone.config.to_dict()
             geometry = (
-                "hidden_size", "intermediate_size", "num_hidden_layers", "num_attention_heads",
-                "image_size", "patch_size", "projection_dim",
+                "hidden_size",
+                "intermediate_size",
+                "num_hidden_layers",
+                "num_attention_heads",
+                "image_size",
+                "patch_size",
+                "projection_dim",
             )
             for key in geometry:
                 if actual[key] != construction["vision_config"][key]:
                     raise ValueError("GenD base CLIP geometry differs: " + key)
-            return None, backbone, {
-                "initialization": "fresh_pretrained_backbone_random_head",
-                "backbone_id": str(backbone_id),
-                "revision": revision,
-            }
+            return (
+                None,
+                backbone,
+                {
+                    "initialization": "fresh_pretrained_backbone_random_head",
+                    "backbone_id": str(backbone_id),
+                    "revision": revision,
+                },
+            )
         if settings.get("initialization") == "random":
             return None, None, {"initialization": "explicit_constructed_random"}
 
-        if settings.get("vision_config") is not None or construction["head"] != DEFAULT_HEAD:
+        if (
+            settings.get("vision_config") is not None
+            or construction["head"] != DEFAULT_HEAD
+        ):
             raise ValueError(
                 "Custom GenD geometry/head requires random initialization or explicit raw checkpoint"
             )
@@ -133,10 +158,18 @@ class GenDTask(ImageClassificationTask):
             MODEL_ID, "model.safetensors", revision=REVISION, local_files_only=True
         )
         weights, receipt = read_gend_weights(path)
-        return weights, None, {
-            **receipt,
-            "pretrained_model": {"model_id": MODEL_ID, "revision": REVISION, "head": DEFAULT_HEAD},
-        }
+        return (
+            weights,
+            None,
+            {
+                **receipt,
+                "pretrained_model": {
+                    "model_id": MODEL_ID,
+                    "revision": REVISION,
+                    "head": DEFAULT_HEAD,
+                },
+            },
+        )
 
     def _configure_training(self, construction, preprocessing):
         if construction["attention_implementation"] not in ("eager", "sdpa"):
@@ -146,13 +179,20 @@ class GenDTask(ImageClassificationTask):
             != "feature_extractor_norm_or_ln_names_plus_complete_head"
             or construction["forward_precision"] != "float32_autocast_disabled"
         ):
-            raise ValueError("GenD state must retain native freezing and precision policy")
+            raise ValueError(
+                "GenD state must retain native freezing and precision policy"
+            )
         profile = construction.get("training_profile", "legacy_ce")
         if profile not in ("legacy_ce", "author_ln_l2_ua"):
             raise ValueError("Unknown GenD training profile")
         if profile == "author_ln_l2_ua":
-            if construction["head"] != "LinearNorm" or preprocessing.get("profile") != "gend-author-pil-v1":
-                raise ValueError("Full GenD state requires its normalized head and author preprocessing")
+            if (
+                construction["head"] != "LinearNorm"
+                or preprocessing.get("profile") != "gend-author-pil-v1"
+            ):
+                raise ValueError(
+                    "Full GenD state requires its normalized head and author preprocessing"
+                )
             from .trainer import GenDTrainer
 
             self.trainer_class = GenDTrainer
@@ -168,7 +208,9 @@ class GenDTask(ImageClassificationTask):
             return GenDDetector(encoder, head=construction["head"])
 
         if weights is not None:
-            model = restore_model(build, weights, initialize_buffers=initialize_clip_position_ids)
+            model = restore_model(
+                build, weights, initialize_buffers=initialize_clip_position_ids
+            )
             # Keep trainable tensors independent of the input state dictionary.
             for parameter in model.parameters():
                 if parameter.requires_grad:
@@ -177,17 +219,24 @@ class GenDTask(ImageClassificationTask):
 
         model = build()
         if backbone is not None:
-            model.model.feature_extractor.load_state_dict(backbone.state_dict(), strict=True)
+            model.model.feature_extractor.load_state_dict(
+                backbone.state_dict(), strict=True
+            )
         return model
 
     def validate_training_parent(self, settings):
         expected = settings.get("training_profile", "author_ln_l2_ua")
         if self.construction.get("training_profile", "legacy_ce") != expected:
-            raise ValueError("GenD parent training profile differs; a historical CE-only model cannot become full GenD silently")
+            raise ValueError(
+                "GenD parent training profile differs; a historical CE-only model cannot become full GenD silently"
+            )
 
     def build_collator(self, *, training):
         if self.preprocessing["profile"] == "gend-author-pil-v1":
             from data.loader import ImageCollator
             from .transforms import GenDTransform
-            return ImageCollator(transform=GenDTransform(self.preprocessing, training=training))
+
+            return ImageCollator(
+                transform=GenDTransform(self.preprocessing, training=training)
+            )
         return super().build_collator(training=training)

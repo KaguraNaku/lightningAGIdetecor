@@ -101,7 +101,7 @@ class ShardSampler(Sampler):
             return iter(range(self.start, self.stop))
         # Consume the entire order so every rank advances its sampler RNG equally.
         order = list(self.sampler)
-        return iter(order[self.start:self.stop])
+        return iter(order[self.start : self.stop])
 
 
 def create_loader(
@@ -140,7 +140,8 @@ def create_loader(
         if sampler is None:
             sampler = (
                 RandomSampler(dataset, generator=sampler_generator)
-                if shuffle else SequentialSampler(dataset)
+                if shuffle
+                else SequentialSampler(dataset)
             )
         sampler = ShardSampler(sampler, *shard)
         shuffle = False
@@ -226,7 +227,13 @@ def create_input_loader(
         else None
     )
     loader = create_loader(
-        dataset, processor, collate_fn=collate_fn, sampler=sampler, seed=seed, shard=shard, **options
+        dataset,
+        processor,
+        collate_fn=collate_fn,
+        sampler=sampler,
+        seed=seed,
+        shard=shard,
+        **options,
     )
     loader.media_type = media_type
     return loader

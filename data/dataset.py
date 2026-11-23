@@ -50,7 +50,9 @@ class ManifestDataset(Dataset):
         for record in self.records:
             if record.storage == "parquet" and record.path not in sources:
                 raise ValueError(f"Unfingerprinted Parquet shard: {record.path}")
-        for source in dict.fromkeys(record.path for record in self.records if record.path in sources):
+        for source in dict.fromkeys(
+            record.path for record in self.records if record.path in sources
+        ):
             identity = sources[source]
             path = self.root / relative_path(source)
             if path.stat().st_size != identity["size"] or (

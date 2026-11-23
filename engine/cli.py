@@ -31,9 +31,15 @@ def execute(
     from .distributed import DistributedRun
 
     config = read_experiment(
-        config_path, require_fit=command != "evaluate", env_file=env_file, model_name=model_name,
-        training_input=training_input, validation_input=validation_input,
-        evaluation_inputs=evaluation_inputs, checkpoint=checkpoint, public=public,
+        config_path,
+        require_fit=command != "evaluate",
+        env_file=env_file,
+        model_name=model_name,
+        training_input=training_input,
+        validation_input=validation_input,
+        evaluation_inputs=evaluation_inputs,
+        checkpoint=checkpoint,
+        public=public,
     )
     for key, value in (overrides or {}).items():
         if value is not None:
@@ -44,15 +50,33 @@ def execute(
         raise ValueError("evaluate requires --checkpoint")
     with DistributedRun.launch(config["runtime"]["device"]) as group:
         directory = _execute(
-            command, config_path, config, checkpoint=checkpoint, datasets=datasets,
-            env_file=env_file, model_name=model_name, timing=timing, group=group,
+            command,
+            config_path,
+            config,
+            checkpoint=checkpoint,
+            datasets=datasets,
+            env_file=env_file,
+            model_name=model_name,
+            timing=timing,
+            group=group,
         )
         if group is not None:
             group.barrier()
         return directory
 
 
-def _execute(command, config_path, config, *, checkpoint, datasets, env_file, model_name, timing, group):
+def _execute(
+    command,
+    config_path,
+    config,
+    *,
+    checkpoint,
+    datasets,
+    env_file,
+    model_name,
+    timing,
+    group,
+):
     import torch
     import yaml
 
@@ -77,7 +101,9 @@ def _execute(command, config_path, config, *, checkpoint, datasets, env_file, mo
     from .summary import summary_rows
 
     primary = group is None or group.is_main
-    directory = create_run_dir(config["runtime"]["output_dir"], command) if primary else None
+    directory = (
+        create_run_dir(config["runtime"]["output_dir"], command) if primary else None
+    )
     if group is not None:
         directory = Path(group.broadcast(str(directory) if primary else None))
     shard = (group.rank, group.world_size) if group is not None else None
@@ -86,7 +112,8 @@ def _execute(command, config_path, config, *, checkpoint, datasets, env_file, mo
         worker_dir = directory / ".workers" / str(group.rank)
         worker_dir.mkdir(parents=True)
     root_logger, handlers, previous_level = configure_logging(
-        worker_dir, config["runtime"]["log_level"],
+        worker_dir,
+        config["runtime"]["log_level"],
     )
     status = {
         "status": "running",
@@ -105,9 +132,15 @@ def _execute(command, config_path, config, *, checkpoint, datasets, env_file, mo
     runtime = None
     try:
         if primary:
-            (directory / "resolved-config.yaml").write_text(yaml.safe_dump(config, sort_keys=False))
-        runtime = Runtime.create(config["runtime"], config["seed"], timing=timing, group=group)
-        data = DataConfig.for_experiment(config_path, config, registry=datasets, env_file=env_file)
+            (directory / "resolved-config.yaml").write_text(
+                yaml.safe_dump(config, sort_keys=False)
+            )
+        runtime = Runtime.create(
+            config["runtime"], config["seed"], timing=timing, group=group
+        )
+        data = DataConfig.for_experiment(
+            config_path, config, registry=datasets, env_file=env_file
+        )
         status["dataset_registry_sha256"] = sha256(data.path)
         logger.info("Run directory: %s", directory)
         names = config["evaluation"]["inputs"] if command != "fit" else []
@@ -124,17 +157,30 @@ def _execute(command, config_path, config, *, checkpoint, datasets, env_file, mo
                 status["checkpoint"] = CheckpointReference(checkpoint).state_dict()
         else:
             task = create_training_task(config)
-            if group is not None and not getattr(task, "supports_distributed_fit", False):
-                raise ValueError("The selected detector does not support distributed fitting")
-        if group is not None and (prepare := getattr(task, "prepare_distributed", None)) is not None:
+            if group is not None and not getattr(
+                task, "supports_distributed_fit", False
+            ):
+                raise ValueError(
+                    "The selected detector does not support distributed fitting"
+                )
+        if (
+            group is not None
+            and (prepare := getattr(task, "prepare_distributed", None)) is not None
+        ):
             prepare(group)
         default_tf32 = getattr(task, "default_allow_tf32", None)
-        if runtime.device.type == "cuda" and "allow_tf32" not in config["runtime"] and default_tf32 is not None:
+        if (
+            runtime.device.type == "cuda"
+            and "allow_tf32" not in config["runtime"]
+            and default_tf32 is not None
+        ):
             previous_tf32 = tf32_flags()
             set_tf32(default_tf32, default_tf32)
             config["runtime"]["allow_tf32"] = default_tf32
         if primary:
-            (directory / "resolved-config.yaml").write_text(yaml.safe_dump(config, sort_keys=False))
+            (directory / "resolved-config.yaml").write_text(
+                yaml.safe_dump(config, sort_keys=False)
+            )
 
         def make_loader(name, stage="evaluation"):
             loader = create_input_loader(
@@ -164,7 +210,9 @@ def _execute(command, config_path, config, *, checkpoint, datasets, env_file, mo
                 loader = make_loader(name, "train")
                 validation_name = config["fit"].get("validation_input")
                 validation_loader = (
-                    make_loader(validation_name, "validation") if validation_name else None
+                    make_loader(validation_name, "validation")
+                    if validation_name
+                    else None
                 )
                 fit_dir = directory / "fit"
                 fit_dir.mkdir(exist_ok=True)
@@ -175,7 +223,10 @@ def _execute(command, config_path, config, *, checkpoint, datasets, env_file, mo
                     runtime=runtime,
                     config=config,
                     output_dir=fit_dir,
-                    provenance={"seed": config["seed"], "inputs": dict(status["inputs"])},
+                    provenance={
+                        "seed": config["seed"],
+                        "inputs": dict(status["inputs"]),
+                    },
                 )
             del loader, validation_loader
             if primary:
@@ -225,9 +276,13 @@ def _execute(command, config_path, config, *, checkpoint, datasets, env_file, mo
             status["finished_at"] = datetime.now(timezone.utc).isoformat()
             atomic_save(directory / "run.json", status)
         if runtime is not None and runtime.timer is not None:
-            runtime.timer.metadata.update(command=command, status=status["status"], precision=runtime.precision)
+            runtime.timer.metadata.update(
+                command=command, status=status["status"], precision=runtime.precision
+            )
             if group is not None:
-                runtime.timer.metadata.update(rank=group.rank, world_size=group.world_size)
+                runtime.timer.metadata.update(
+                    rank=group.rank, world_size=group.world_size
+                )
             runtime.timer.write(worker_dir / "timing.json")
         for handler in handlers:
             root_logger.removeHandler(handler)
@@ -237,93 +292,178 @@ def _execute(command, config_path, config, *, checkpoint, datasets, env_file, mo
 
 def main(argv=None):
     import sys
+
     argv = list(sys.argv[1:] if argv is None else argv)
     if argv and argv[0] in ("prepare-data", "check-data"):
         from data.cli import prepare_main, check_main
-        return {"prepare-data": prepare_main, "check-data": check_main}[argv[0]](argv[1:])
+
+        return {"prepare-data": prepare_main, "check-data": check_main}[argv[0]](
+            argv[1:]
+        )
     parser = argparse.ArgumentParser(
         description="Run model-independent image detection experiments"
     )
     commands = parser.add_subparsers(dest="command", required=True)
-    commands.add_parser("models", help="List the nine models without loading any backend")
-    commands.add_parser("prepare-data", help="Prepare frozen manifests; forwards to the shared data module", add_help=False)
-    commands.add_parser("check-data", help="Decode manifest inputs using the shared data module", add_help=False)
-    commands.add_parser("environment", help="Report installed dependency versions without model execution")
-    importer = commands.add_parser("import-checkpoint", help="Wrap complete native weights for ordinary evaluate; no training")
+    commands.add_parser(
+        "models", help="List the nine models without loading any backend"
+    )
+    commands.add_parser(
+        "prepare-data",
+        help="Prepare frozen manifests; forwards to the shared data module",
+        add_help=False,
+    )
+    commands.add_parser(
+        "check-data",
+        help="Decode manifest inputs using the shared data module",
+        add_help=False,
+    )
+    commands.add_parser(
+        "environment",
+        help="Report installed dependency versions without model execution",
+    )
+    importer = commands.add_parser(
+        "import-checkpoint",
+        help="Wrap complete native weights for ordinary evaluate; no training",
+    )
     importer.add_argument("--model", choices=tuple(ModelRegistry.NATIVE_CLASSES))
     importer.add_argument("--config", type=Path, help="Defaults to configs/config.yaml")
     importer.add_argument("--env-file", type=Path)
-    importer.add_argument("--input", required=True, type=Path, help="Original complete detector checkpoint")
-    importer.add_argument("--output", required=True, type=Path, help="New engine checkpoint; existing files are preserved")
+    importer.add_argument(
+        "--input",
+        required=True,
+        type=Path,
+        help="Original complete detector checkpoint",
+    )
+    importer.add_argument(
+        "--output",
+        required=True,
+        type=Path,
+        help="New engine checkpoint; existing files are preserved",
+    )
     for name in ("fit", "evaluate", "run", "check"):
         command = commands.add_parser(name)
         command.add_argument(
             "--config", type=Path, help="Defaults to configs/config.yaml"
         )
-        command.add_argument("--model", choices=tuple(spec.name for spec in ModelRegistry.SPECS))
+        command.add_argument(
+            "--model", choices=tuple(spec.name for spec in ModelRegistry.SPECS)
+        )
         if name != "evaluate":
             command.add_argument("--train-input", help="Configured source train input")
-            command.add_argument("--validation-input", help="Configured source validation input")
-        command.add_argument("--test-inputs", nargs="+", help="Configured val/test input names")
+            command.add_argument(
+                "--validation-input", help="Configured source validation input"
+            )
+        command.add_argument(
+            "--test-inputs", nargs="+", help="Configured val/test input names"
+        )
         command.add_argument("--datasets", type=Path, help="Dataset registry YAML")
         command.add_argument("--env-file", type=Path)
         command.add_argument("--output-dir", type=Path)
-        command.add_argument("--device", help="Override the device (default: auto). Use cpu or an accelerator such as cuda.")
+        command.add_argument(
+            "--device",
+            help="Override the device (default: auto). Use cpu or an accelerator such as cuda.",
+        )
         command.add_argument("--precision", choices=["fp32", "fp16", "bf16"])
         if name != "check":
             command.add_argument(
-                "--tf32", dest="allow_tf32", action=argparse.BooleanOptionalAction,
+                "--tf32",
+                dest="allow_tf32",
+                action=argparse.BooleanOptionalAction,
                 help="Allow TF32 on CUDA",
             )
             command.add_argument(
-                "--timing", action=argparse.BooleanOptionalAction, default=False,
+                "--timing",
+                action=argparse.BooleanOptionalAction,
+                default=False,
                 help="Write a timing report for the command (default: off)",
             )
         command.add_argument(
             "--log-level", choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
         )
-        command.add_argument("--checkpoint", type=Path, required=name == "evaluate",
-            help="Fitted model to evaluate" if name == "evaluate" else "Continue from a fitted model.pth")
+        command.add_argument(
+            "--checkpoint",
+            type=Path,
+            required=name == "evaluate",
+            help="Fitted model to evaluate"
+            if name == "evaluate"
+            else "Continue from a fitted model.pth",
+        )
         if name == "check":
-            command.add_argument("--batches", type=int, default=0,
-                help="Also initialize the selected Task and decode this many real batches per input on CPU; no model forward or training")
+            command.add_argument(
+                "--batches",
+                type=int,
+                default=0,
+                help="Also initialize the selected Task and decode this many real batches per input on CPU; no model forward or training",
+            )
     args = parser.parse_args(argv)
     if args.command == "environment":
         import importlib.metadata
         import json
         import platform
+
         versions = {}
-        for package in ("torch", "torchvision", "transformers", "Pillow", "numpy", "scipy", "albumentations"):
+        for package in (
+            "torch",
+            "torchvision",
+            "transformers",
+            "Pillow",
+            "numpy",
+            "scipy",
+            "albumentations",
+        ):
             try:
                 versions[package] = importlib.metadata.version(package)
             except importlib.metadata.PackageNotFoundError:
                 versions[package] = None
-        print(json.dumps({"python": platform.python_version(), "packages": versions,
-                          "GPU_forward_executed": False}, indent=2))
+        print(
+            json.dumps(
+                {
+                    "python": platform.python_version(),
+                    "packages": versions,
+                    "GPU_forward_executed": False,
+                },
+                indent=2,
+            )
+        )
         return
     if args.command == "models":
         import json
-        print(json.dumps({"models":ModelRegistry.describe()},indent=2))
+
+        print(json.dumps({"models": ModelRegistry.describe()}, indent=2))
         return
     if args.config is None:
         if args.model is None:
-            parser.error('Specify --model or --config')
+            parser.error("Specify --model or --config")
         args.config = ModelRegistry.default_config(args.model)
     try:
         if args.command == "import-checkpoint":
             from .fit import CheckpointImporter
-            converted = CheckpointImporter(args.config, model_name=args.model, env_file=args.env_file).convert(
-                args.input, args.output
-            )
+
+            converted = CheckpointImporter(
+                args.config, model_name=args.model, env_file=args.env_file
+            ).convert(args.input, args.output)
             print(converted)
             return
         if args.command == "check":
             import json
             from .inspection import ExperimentInspector
-            print(json.dumps(ExperimentInspector().inspect(args.config, datasets=args.datasets,
-                env_file=args.env_file, model=args.model, batches=args.batches,
-                training_input=args.train_input, validation_input=args.validation_input,
-                evaluation_inputs=args.test_inputs, checkpoint=args.checkpoint), indent=2))
+
+            print(
+                json.dumps(
+                    ExperimentInspector().inspect(
+                        args.config,
+                        datasets=args.datasets,
+                        env_file=args.env_file,
+                        model=args.model,
+                        batches=args.batches,
+                        training_input=args.train_input,
+                        validation_input=args.validation_input,
+                        evaluation_inputs=args.test_inputs,
+                        checkpoint=args.checkpoint,
+                    ),
+                    indent=2,
+                )
+            )
             return
         directory = execute(
             args.command,
@@ -339,7 +479,13 @@ def main(argv=None):
             public=True,
             overrides={
                 key: getattr(args, key)
-                for key in ("output_dir", "device", "precision", "allow_tf32", "log_level")
+                for key in (
+                    "output_dir",
+                    "device",
+                    "precision",
+                    "allow_tf32",
+                    "log_level",
+                )
             },
         )
     except Exception as error:

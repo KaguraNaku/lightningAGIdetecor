@@ -46,5 +46,7 @@ class GenDDetector(nn.Module):
         with torch.autocast(device_type=images.device.type, enabled=False):
             features = self.model.feature_extractor(images)
             embeddings = F.normalize(features, p=2, dim=1)
-            logits = self.model.model.linear(embeddings if self.model.model.normalize_inputs else features)
+            logits = self.model.model.linear(
+                embeddings if self.model.model.normalize_inputs else features
+            )
             return {"cls": logits, "l2_embeddings": embeddings}

@@ -30,9 +30,15 @@ class ResourceResolver:
     """
 
     VARIABLE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
-    FILE_FIELDS = frozenset({
-        "init_weights", "initial_checkpoint", "checkpoint", "parent_checkpoint", "path",
-    })
+    FILE_FIELDS = frozenset(
+        {
+            "init_weights",
+            "initial_checkpoint",
+            "checkpoint",
+            "parent_checkpoint",
+            "path",
+        }
+    )
     DIRECTORY_FIELDS = frozenset({"cache_dir", "assets_dir", "model_dir"})
 
     def __init__(self, base_dir, *, variables=None, env_file=None):
@@ -62,7 +68,9 @@ class ResourceResolver:
 
         expanded = self.VARIABLE.sub(replace, value)
         if "$" in expanded:
-            raise ValueError(f"Unsupported environment expression: {value}; use ${{NAME}}")
+            raise ValueError(
+                f"Unsupported environment expression: {value}; use ${{NAME}}"
+            )
         return expanded
 
     def path(self, value, *, must_exist=True, kind="file"):
@@ -76,7 +84,13 @@ class ResourceResolver:
             path = self.base_dir / path
         path = path.resolve()
         if must_exist:
-            valid = path.is_file() if kind == "file" else path.is_dir() if kind == "directory" else path.exists()
+            valid = (
+                path.is_file()
+                if kind == "file"
+                else path.is_dir()
+                if kind == "directory"
+                else path.exists()
+            )
             if not valid:
                 raise FileNotFoundError(f"Required {kind} resource not found: {path}")
         return path
@@ -98,7 +112,11 @@ class ResourceResolver:
                     result[key] = str(self.path(item, kind="directory"))
                 elif isinstance(item, str) and key == "backbone_id":
                     expanded = self.expand(item)
-                    result[key] = str(self.path(expanded, kind="directory")) if expanded.startswith(("/", "~", ".")) else expanded
+                    result[key] = (
+                        str(self.path(expanded, kind="directory"))
+                        if expanded.startswith(("/", "~", "."))
+                        else expanded
+                    )
                 else:
                     result[key] = visit(item)
             return result

@@ -36,7 +36,11 @@ class ProDetSourcePreparer:
     def prepare(self, dataset, output):
         import numpy as np
         from scipy.spatial import KDTree
-        if dataset.header["dataset"] != "FaceForensics++" or dataset.header["split"] != "train":
+
+        if (
+            dataset.header["dataset"] != "FaceForensics++"
+            or dataset.header["split"] != "train"
+        ):
             raise ValueError("ProDet preparation requires an FF++ training manifest")
         sampling = dict(dataset.header["sampling"])
         counts = Counter(row.video_id for row in dataset.records)
@@ -63,24 +67,36 @@ class ProDetSourcePreparer:
             if row.label == 0:
                 parts = list(Path(row.path).parts)
                 if parts.count("frames") != 1:
-                    raise ValueError("ProDet real images require one frames path component")
+                    raise ValueError(
+                        "ProDet real images require one frames path component"
+                    )
                 parts[parts.index("frames")] = "landmarks"
                 relative = Path(*parts).with_suffix(".npy").as_posix()
                 identity = file_identity(dataset.root, relative)
                 values = np.load(Path(dataset.root) / relative, allow_pickle=False)
-                if (values.shape not in ((68, 2), (81, 2)) or values.dtype.kind not in "iuf"
-                        or not np.isfinite(values).all()):
+                if (
+                    values.shape not in ((68, 2), (81, 2))
+                    or values.dtype.kind not in "iuf"
+                    or not np.isfinite(values).all()
+                ):
                     raise ValueError(f"Invalid ProDet landmarks: {relative}")
                 shapes.add(values.shape)
                 # Both generation and the upstream nearest script use the native
                 # 256-coordinate sidecar. Never rescale or synthesize zero points.
-                attributes["landmarks"] = {"path": relative, "sha256": identity["sha256"],
-                                             "coordinate_size": 256}
+                attributes["landmarks"] = {
+                    "path": relative,
+                    "sha256": identity["sha256"],
+                    "coordinate_size": 256,
+                }
                 arrays.append(values.astype(np.float32).ravel())
-                keys.append(native.replace("frames", "landmarks").replace(".png", ".npy"))
+                keys.append(
+                    native.replace("frames", "landmarks").replace(".png", ".npy")
+                )
             records.append(replace(row, metadata=attributes))
         if len(shapes) != 1 or len(arrays) < 2:
-            raise ValueError("ProDet neighbors need at least two real sources with equal landmark shapes")
+            raise ValueError(
+                "ProDet neighbors need at least two real sources with equal landmark shapes"
+            )
         vectors = np.asarray(arrays)
         tree = KDTree(vectors)
         raw = {}
@@ -88,39 +104,61 @@ class ProDetSourcePreparer:
             _, indices = tree.query(vector, k=min(101, len(keys)))
             raw[key] = [keys[int(index)] for index in indices[1:]]
         if any(not values for values in native_neighbor_filter(raw).values()):
-            raise ValueError("ProDet nearest table has empty entries after author filtering")
-        header = {**dataset.header, "sources": sources,
-                  "prodet_preparation": {"version": 1,
-                    "parent_manifest": str(dataset.manifest_path),
-                    "parent_manifest_sha256": sha256(dataset.manifest_path),
-                    "sampling": sampling,
-                    "landmark_coordinate_size": 256,
-                    "neighbors": "train-only KDTree float32 flattened nearest100;author ordered filtering at load"}}
+            raise ValueError(
+                "ProDet nearest table has empty entries after author filtering"
+            )
+        header = {
+            **dataset.header,
+            "sources": sources,
+            "prodet_preparation": {
+                "version": 1,
+                "parent_manifest": str(dataset.manifest_path),
+                "parent_manifest_sha256": sha256(dataset.manifest_path),
+                "sampling": sampling,
+                "landmark_coordinate_size": 256,
+                "neighbors": "train-only KDTree float32 flattened nearest100;author ordered filtering at load",
+            },
+        }
         # The files-first inventory belongs to the original manifest bytes.
         # Preserve that reference as parent provenance instead of pretending
         # its bound-manifest SHA/header also describe this derived manifest.
         if "reconciliation" in header:
-            header["prodet_preparation"]["parent_reconciliation"] = header.pop("reconciliation")
+            header["prodet_preparation"]["parent_reconciliation"] = header.pop(
+                "reconciliation"
+            )
         output.parent.mkdir(parents=True, exist_ok=True)
         write_manifest(output, header, records)
         header, records = read_manifest(output)
-        bound = SimpleNamespace(root=dataset.root, manifest_path=output, header=header, records=records)
-        identity = write_neighbors(neighbors_path, dataset=bound, neighbors=raw, origin={
-            "algorithm_source": "https://github.com/SCLBD/DeepfakeBench/blob/main/training/dataset/generate_xray_nearest.py",
-            "scope": "Real members of the bound training manifest",
-            "author_original_pickle_reproduced": False,
-            "numpy_version": np.__version__,
-            "scipy_version": __import__("scipy").__version__,
-            "neighbor_count": min(100, len(keys) - 1),
-            "landmark_shape": list(next(iter(shapes))),
-        })
+        bound = SimpleNamespace(
+            root=dataset.root, manifest_path=output, header=header, records=records
+        )
+        identity = write_neighbors(
+            neighbors_path,
+            dataset=bound,
+            neighbors=raw,
+            origin={
+                "algorithm_source": "https://github.com/SCLBD/DeepfakeBench/blob/main/training/dataset/generate_xray_nearest.py",
+                "scope": "Real members of the bound training manifest",
+                "author_original_pickle_reproduced": False,
+                "numpy_version": np.__version__,
+                "scipy_version": __import__("scipy").__version__,
+                "neighbor_count": min(100, len(keys) - 1),
+                "landmark_shape": list(next(iter(shapes))),
+            },
+        )
         plan = ProDetSourcePlan(bound, neighbors=identity)
-        receipt = {"status": "prepared", "manifest": str(output),
-                   "manifest_sha256": sha256(output), "samples": len(records),
-                   "training_neighbors": identity, "sampling": sampling,
-                   "quadruples": len(plan.pairs), "model_views": len(plan.records),
-                   "source_protocol": header["prodet_preparation"],
-                   "GPU_forward_executed": False}
+        receipt = {
+            "status": "prepared",
+            "manifest": str(output),
+            "manifest_sha256": sha256(output),
+            "samples": len(records),
+            "training_neighbors": identity,
+            "sampling": sampling,
+            "quadruples": len(plan.pairs),
+            "model_views": len(plan.records),
+            "source_protocol": header["prodet_preparation"],
+            "GPU_forward_executed": False,
+        }
         with receipt_path.open("x") as stream:
             json.dump(receipt, stream, indent=2, allow_nan=False)
             stream.write("\n")

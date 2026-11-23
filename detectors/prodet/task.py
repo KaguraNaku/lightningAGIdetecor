@@ -89,15 +89,26 @@ class ProDetTask(ImageClassificationTask):
 
     @staticmethod
     def validate_fit_config(model, fit, *, public):
-        if (public and "checkpoint" not in fit and not fit.get("ufd")
-                and model.get("data_profile") != "specialized_quadruples"):
-            raise ValueError("ProDet training requires a manifest with the author quadruple bindings")
+        if (
+            public
+            and "checkpoint" not in fit
+            and not fit.get("ufd")
+            and model.get("data_profile") != "specialized_quadruples"
+        ):
+            raise ValueError(
+                "ProDet training requires a manifest with the author quadruple bindings"
+            )
 
     @staticmethod
     def prepare_manifest(dataset, *, output, config, frames_per_video):
-        if frames_per_video is not None and frames_per_video != dataset.header["sampling"].get("frames_per_video"):
+        if frames_per_video is not None and frames_per_video != dataset.header[
+            "sampling"
+        ].get("frames_per_video"):
             raise ValueError("--frames-per-video must match the source manifest")
-        output = output or config.manifest_dir() / "FaceForensics++-train-prodet-bindings.jsonl"
+        output = (
+            output
+            or config.manifest_dir() / "FaceForensics++-train-prodet-bindings.jsonl"
+        )
         return ProDetSourcePreparer().prepare(dataset, output)
 
     @staticmethod
@@ -127,22 +138,34 @@ class ProDetTask(ImageClassificationTask):
             return {}
         targets = batch["prodet_labels"]
         count = len(batch["pixel_values"])
-        expected = torch.tensor([0., 1., 3., 2.]).repeat_interleave(count // 4)
-        if count % 4 or targets.dtype != torch.float32 or not torch.equal(targets, expected):
-            raise ValueError("ProDet preflight requires real/SBI/BI/deepfake ordered float domains")
+        expected = torch.tensor([0.0, 1.0, 3.0, 2.0]).repeat_interleave(count // 4)
+        if (
+            count % 4
+            or targets.dtype != torch.float32
+            or not torch.equal(targets, expected)
+        ):
+            raise ValueError(
+                "ProDet preflight requires real/SBI/BI/deepfake ordered float domains"
+            )
         return {
             "quadruples": count // 4,
-            "domain_counts": {str(domain): int((targets == domain).sum()) for domain in (0, 1, 3, 2)},
+            "domain_counts": {
+                str(domain): int((targets == domain).sum()) for domain in (0, 1, 3, 2)
+            },
         }
 
     def __init__(self, settings, *, state=None):
         recipe = selected_recipe()
         self._validate_model_settings(settings, recipe)
         if state is None:
-            construction, preprocessing, origin = self._training_config(settings, recipe)
+            construction, preprocessing, origin = self._training_config(
+                settings, recipe
+            )
             model, initialized = self._initialize_model(settings, recipe, origin)
         else:
-            construction, preprocessing, origin, weights = self._restore_config(settings, state)
+            construction, preprocessing, origin, weights = self._restore_config(
+                settings, state
+            )
             model = restore_detector(weights, recipe=construction["recipe"])
             initialized = True
 
@@ -157,8 +180,12 @@ class ProDetTask(ImageClassificationTask):
     @staticmethod
     def _validate_model_settings(settings, recipe):
         options = {
-            "data_profile", "training_neighbors", "initial_checkpoint",
-            "init_weights", "initialization", "score_type",
+            "data_profile",
+            "training_neighbors",
+            "initial_checkpoint",
+            "init_weights",
+            "initialization",
+            "score_type",
         }
         if extra := set(settings) - recipe.keys() - options:
             raise ValueError(f"Unsupported ProDet settings: {', '.join(sorted(extra))}")
@@ -166,7 +193,9 @@ class ProDetTask(ImageClassificationTask):
             raise ValueError("ProDet outputs a fake-class probability")
         for key, value in recipe.items():
             if key in settings and not same_metadata(settings[key], value):
-                raise ValueError(f"ProDet requested non-native construction setting: {key}")
+                raise ValueError(
+                    f"ProDet requested non-native construction setting: {key}"
+                )
 
     def _training_config(self, settings, recipe):
         profile = settings.get("data_profile")
@@ -200,8 +229,11 @@ class ProDetTask(ImageClassificationTask):
     def _restore_config(self, settings, state):
         construction, preprocessing, origin, weights = self.unpack_state(state)
         if isinstance(preprocessing, dict):
-            preprocessing = {key: value for key, value in preprocessing.items()
-                             if key not in {"validation_role", "worker_RNG"}}
+            preprocessing = {
+                key: value
+                for key, value in preprocessing.items()
+                if key not in {"validation_role", "worker_RNG"}
+            }
         self.validate_metadata(construction, preprocessing, origin)
         if "data_profile" in settings and not same_metadata(
             settings["data_profile"], construction["data_profile"]
@@ -214,20 +246,33 @@ class ProDetTask(ImageClassificationTask):
                 # Restoring a model only needs the saved sidecar path.
                 path = str(Path(requested).expanduser().resolve())
                 if not isinstance(saved, dict) or path != saved["path"]:
-                    raise ValueError("ProDet requested neighbor path differs from saved Task")
+                    raise ValueError(
+                        "ProDet requested neighbor path differs from saved Task"
+                    )
             elif not same_metadata(requested, saved):
-                raise ValueError("ProDet requested data bindings differ from saved Task")
-        return deepcopy(construction), deepcopy(preprocessing), deepcopy(origin), weights
+                raise ValueError(
+                    "ProDet requested data bindings differ from saved Task"
+                )
+        return (
+            deepcopy(construction),
+            deepcopy(preprocessing),
+            deepcopy(origin),
+            weights,
+        )
 
     def bind_resume_input(self, settings):
         """Apply the selected training input's neighbor sidecar to a restored Task."""
         profile = self.construction["data_profile"]
         if settings.get("data_profile", profile) != profile:
-            raise ValueError("ProDet continuation requires the checkpoint's data_profile")
+            raise ValueError(
+                "ProDet continuation requires the checkpoint's data_profile"
+            )
         neighbors = settings.get("training_neighbors")
         if neighbors is None:
             if profile == "specialized_quadruples":
-                raise ValueError("ProDet continuation requires training_neighbors for the selected training input")
+                raise ValueError(
+                    "ProDet continuation requires training_neighbors for the selected training input"
+                )
             return {}
         if isinstance(neighbors, str):
             neighbors = neighbor_identity(neighbors)
@@ -241,7 +286,10 @@ class ProDetTask(ImageClassificationTask):
         checkpoint = settings.get("initial_checkpoint")
         imagenet = settings.get("init_weights")
         initialization = settings.get("initialization")
-        if sum(value is not None for value in (checkpoint, imagenet, initialization)) > 1:
+        if (
+            sum(value is not None for value in (checkpoint, imagenet, initialization))
+            > 1
+        ):
             raise ValueError("Select one ProDet initialization source")
         if checkpoint is not None:
             weights, receipt = detector_weights(checkpoint, recipe=recipe)
@@ -254,7 +302,9 @@ class ProDetTask(ImageClassificationTask):
 
         backbone = EfficientNetB4(mode="original")
         if imagenet is not None:
-            origin["pretrained_backbone"] = EfficientNetB4Initializer.initialize(backbone, imagenet)
+            origin["pretrained_backbone"] = EfficientNetB4Initializer.initialize(
+                backbone, imagenet
+            )
         else:
             origin["initialization"] = "explicit_random;not_training"
         return ProDetDetector(backbone), False
@@ -314,7 +364,9 @@ class ProDetTask(ImageClassificationTask):
     def build_collator(self, *, training):
         if training and self.construction["data_profile"] == "specialized_quadruples":
             return ProDetDataCollator()
-        return ImageCollator(transform=ImageTransform(self.preprocessing["generic"], training))
+        return ImageCollator(
+            transform=ImageTransform(self.preprocessing["generic"], training)
+        )
 
     def build_trainer(self):
         return ProDetTrainer(

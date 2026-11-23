@@ -57,7 +57,13 @@ class ExperimentTask(Protocol):
         ...
 
     def fit(
-        self, loader, *, validation_loader=None, runtime, settings: dict, output_dir: Path
+        self,
+        loader,
+        *,
+        validation_loader=None,
+        runtime,
+        settings: dict,
+        output_dir: Path,
     ) -> dict:
         """Fit and return JSON-serializable diagnostics; process every input record."""
         ...

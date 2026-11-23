@@ -16,17 +16,28 @@ def get_backbone_model_type(model_id, **kwargs):
 class BackboneLoader:
     """Resolve native or Hugging Face model types only when loading is requested."""
 
-    CONFIG_OPTIONS = frozenset({
-        "revision", "cache_dir", "local_files_only", "token", "force_download",
-        "subfolder", "trust_remote_code",
-    })
+    CONFIG_OPTIONS = frozenset(
+        {
+            "revision",
+            "cache_dir",
+            "local_files_only",
+            "token",
+            "force_download",
+            "subfolder",
+            "trust_remote_code",
+        }
+    )
 
     def __init__(self, registry=None):
         self.registry = LOADERS if registry is None else registry
 
     def load(self, model_id, component="vision", *, model_type=None, **kwargs):
         if model_type is None:
-            config_options = {key: value for key, value in kwargs.items() if key in self.CONFIG_OPTIONS}
+            config_options = {
+                key: value
+                for key, value in kwargs.items()
+                if key in self.CONFIG_OPTIONS
+            }
             model_type = get_backbone_model_type(model_id, **config_options)
         loader = self.registry.resolve(model_type, component, importer=import_module)
         return loader(model_id, **kwargs)
@@ -54,12 +65,16 @@ def load_image_processor(model_id, *, revision=None, state=None):
     import transformers
 
     if state is None:
-        return transformers.AutoImageProcessor.from_pretrained(model_id, revision=revision, backend="pil")
+        return transformers.AutoImageProcessor.from_pretrained(
+            model_id, revision=revision, backend="pil"
+        )
 
     from transformers.image_processing_utils import BaseImageProcessor
 
     name = state["image_processor_type"]
     processor_class = getattr(transformers, name, None)
-    if not isinstance(processor_class, type) or not issubclass(processor_class, BaseImageProcessor):
+    if not isinstance(processor_class, type) or not issubclass(
+        processor_class, BaseImageProcessor
+    ):
         raise ValueError(f"Unknown image processor in checkpoint: {name}")
     return processor_class.from_dict(state)

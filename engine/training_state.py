@@ -1,4 +1,5 @@
 """Save selected training state and restore it at epoch boundaries."""
+
 import random
 from uuid import uuid4
 
@@ -10,7 +11,7 @@ from .fit import read_checkpoint
 
 
 def qualified(value):
-    return type(value).__module__ + '.' + type(value).__qualname__
+    return type(value).__module__ + "." + type(value).__qualname__
 
 
 def loader_state(loader):
@@ -23,12 +24,12 @@ def loader_state(loader):
         "batch_size": loader.batch_size,
         "persistent_workers": loader.persistent_workers,
     }
-    provider = getattr(sampler, 'state_dict', None)
+    provider = getattr(sampler, "state_dict", None)
     if callable(provider):
-        state['sampler'] = provider()
-    generator = getattr(sampler, 'generator', None)
+        state["sampler"] = provider()
+    generator = getattr(sampler, "generator", None)
     if isinstance(generator, torch.Generator):
-        state['sampler_generator'] = generator.get_state()
+        state["sampler_generator"] = generator.get_state()
     return state
 
 
@@ -40,21 +41,26 @@ def _restore_generator(generator, saved):
 
 
 def restore_loader(loader, state):
-    if qualified(loader.sampler) != state['type']:
-        raise ValueError('Checkpoint sampler type differs')
-    if loader.num_workers != state['num_workers'] or loader.batch_size != state['batch_size']:
-        raise ValueError('Checkpoint loader batch size or worker count differs')
+    if qualified(loader.sampler) != state["type"]:
+        raise ValueError("Checkpoint sampler type differs")
+    if (
+        loader.num_workers != state["num_workers"]
+        or loader.batch_size != state["batch_size"]
+    ):
+        raise ValueError("Checkpoint loader batch size or worker count differs")
     if loader.persistent_workers or state.get("persistent_workers", False):
         raise ValueError("Checkpoint resume requires nonpersistent workers")
     _restore_generator(loader.generator, state["generator"])
-    if 'sampler' in state:
-        loader.sampler.load_state_dict(state['sampler'])
-    _restore_generator(getattr(loader.sampler, "generator", None), state.get("sampler_generator"))
+    if "sampler" in state:
+        loader.sampler.load_state_dict(state["sampler"])
+    _restore_generator(
+        getattr(loader.sampler, "generator", None), state.get("sampler_generator")
+    )
 
 
 def optimizer_names(trainer, optimizer):
     names = {id(p): n for n, p in trainer.model.named_parameters()}
-    return [[names[id(p)] for p in group['params']] for group in optimizer.param_groups]
+    return [[names[id(p)] for p in group["params"]] for group in optimizer.param_groups]
 
 
 def restore_selected_state(trainer, saved):
@@ -68,14 +74,22 @@ def restore_selected_state(trainer, saved):
         raise ValueError("Unexpected method-specific trainer state")
 
 
-def restore_training_state(saved, trainer, optimizer, scaler, loader, validation_loader, runtime):
-    contract = saved['training_state']
-    if (contract["optimizer_type"] != qualified(optimizer)
-            or contract["optimizer_parameter_names"] != optimizer_names(trainer, optimizer)):
+def restore_training_state(
+    saved, trainer, optimizer, scaler, loader, validation_loader, runtime
+):
+    contract = saved["training_state"]
+    if contract["optimizer_type"] != qualified(optimizer) or contract[
+        "optimizer_parameter_names"
+    ] != optimizer_names(trainer, optimizer):
         raise ValueError("Checkpoint optimizer type or parameter layout differs")
-    before = [{k: v for k, v in group.items() if k != "params"} for group in optimizer.param_groups]
-    carried = [{k: v for k, v in group.items() if k != "params"}
-               for group in saved["optimizer"]["param_groups"]]
+    before = [
+        {k: v for k, v in group.items() if k != "params"}
+        for group in optimizer.param_groups
+    ]
+    carried = [
+        {k: v for k, v in group.items() if k != "params"}
+        for group in saved["optimizer"]["param_groups"]
+    ]
     check_contract = getattr(trainer, "validate_optimizer_contract", None)
     if check_contract is not None:
         check_contract(before, carried)
@@ -101,22 +115,41 @@ def restore_training_state(saved, trainer, optimizer, scaler, loader, validation
 class TrainingSnapshot:
     def __init__(self, settings, loader, validation_loader, runtime):
         self.id = uuid4().hex
-        self.loader, self.validation_loader, self.runtime = loader, validation_loader, runtime
-        self.resumable = not (loader.persistent_workers or validation_loader.persistent_workers)
+        self.loader, self.validation_loader, self.runtime = (
+            loader,
+            validation_loader,
+            runtime,
+        )
+        self.resumable = not (
+            loader.persistent_workers or validation_loader.persistent_workers
+        )
         self.parent = None
         if reference := settings.get("resume_state"):
             self.parent = read_checkpoint(reference["path"])
             state = self.parent.get("training_state", {})
-            if state.get("id") != reference["id"] or self.parent["epoch"] != reference["epoch"]:
+            if (
+                state.get("id") != reference["id"]
+                or self.parent["epoch"] != reference["epoch"]
+            ):
                 raise ValueError("best.pth does not belong to the selected model.pth")
-            if (state["device_type"], state["precision"]) != (runtime.device.type, runtime.precision):
-                raise ValueError("Resume with the checkpoint's device type and precision")
+            if (state["device_type"], state["precision"]) != (
+                runtime.device.type,
+                runtime.precision,
+            ):
+                raise ValueError(
+                    "Resume with the checkpoint's device type and precision"
+                )
 
     def restore(self, trainer, optimizer, scaler):
         if self.parent is not None:
             restore_training_state(
-                self.parent, trainer, optimizer, scaler,
-                self.loader, self.validation_loader, self.runtime,
+                self.parent,
+                trainer,
+                optimizer,
+                scaler,
+                self.loader,
+                self.validation_loader,
+                self.runtime,
             )
             self.parent = None
 
@@ -133,13 +166,18 @@ class TrainingSnapshot:
             "numpy_rng": [numpy_rng[0], numpy_rng[1].tolist(), *numpy_rng[2:]],
             "accelerator_rng": [
                 get_device_rng_state(torch.device(device_type, index))
-                for index in range(torch.accelerator.device_count() if device_type != "cpu" else 0)
+                for index in range(
+                    torch.accelerator.device_count() if device_type != "cpu" else 0
+                )
             ],
             "training_state": {
                 "id": self.id,
                 "optimizer_type": qualified(optimizer),
                 "optimizer_parameter_names": optimizer_names(trainer, optimizer),
-                "loaders": {"train": train, "validation": loader_state(self.validation_loader)},
+                "loaders": {
+                    "train": train,
+                    "validation": loader_state(self.validation_loader),
+                },
                 "device_type": device_type,
                 "precision": self.runtime.precision,
             },

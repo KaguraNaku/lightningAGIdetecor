@@ -30,23 +30,34 @@ RECIPE = {
 }
 
 
-UFD_LABEL_MAP = {'real': 0, 'FF_Deepfakes': 1, 'FF_Face2Face': 2,
-           'FF_FaceSwap': 3, 'FF_NeuralTextures': 4, 'ProGAN': 5}
+UFD_LABEL_MAP = {
+    "real": 0,
+    "FF_Deepfakes": 1,
+    "FF_Face2Face": 2,
+    "FF_FaceSwap": 3,
+    "FF_NeuralTextures": 4,
+    "ProGAN": 5,
+}
 
 
 def expand_progan_head(task):
     old = task.model.head_spe.mlp[2]
     if old.out_features != 5:
-        raise ValueError('Expected five FF++ auxiliary classes before adding ProGAN')
-    expanded = nn.Linear(old.in_features, 6, bias=old.bias is not None,
-                         device=old.weight.device, dtype=old.weight.dtype)
+        raise ValueError("Expected five FF++ auxiliary classes before adding ProGAN")
+    expanded = nn.Linear(
+        old.in_features,
+        6,
+        bias=old.bias is not None,
+        device=old.weight.device,
+        dtype=old.weight.dtype,
+    )
     with torch.no_grad():
         expanded.weight[:5].copy_(old.weight)
         if old.bias is not None:
             expanded.bias[:5].copy_(old.bias)
     task.model.head_spe.mlp[2] = expanded
-    task.construction['specific_classes'] = 6
-    task.construction['specific_label_map'] = dict(UFD_LABEL_MAP)
+    task.construction["specific_classes"] = 6
+    task.construction["specific_label_map"] = dict(UFD_LABEL_MAP)
 
 
 class UCFTask(ImageClassificationTask):
@@ -54,7 +65,10 @@ class UCFTask(ImageClassificationTask):
 
     @staticmethod
     def ufd_model_settings():
-        return {"specific_classes": len(UFD_LABEL_MAP), "specific_label_map": dict(UFD_LABEL_MAP)}
+        return {
+            "specific_classes": len(UFD_LABEL_MAP),
+            "specific_label_map": dict(UFD_LABEL_MAP),
+        }
 
     def configure_ufd_training(self, adaptation, *, warm_start):
         if warm_start:
@@ -75,7 +89,9 @@ class UCFTask(ImageClassificationTask):
 
         def build():
             return UCFDetector(
-                UCFXception(), UCFXception(), specific_classes=construction["specific_classes"]
+                UCFXception(),
+                UCFXception(),
+                specific_classes=construction["specific_classes"],
             )
 
         if weights is not None:
@@ -96,7 +112,9 @@ class UCFTask(ImageClassificationTask):
         construction = {
             "recipe": deepcopy(RECIPE),
             "specific_classes": settings.get("specific_classes", 5),
-            "specific_label_map": deepcopy(settings.get("specific_label_map", DEFAULT_LABEL_MAP)),
+            "specific_label_map": deepcopy(
+                settings.get("specific_label_map", DEFAULT_LABEL_MAP)
+            ),
         }
         origin = {
             "method": "ucf",
@@ -114,7 +132,9 @@ class UCFTask(ImageClassificationTask):
             or construction["recipe"] != RECIPE
             or preprocessing != expected_preprocessing
         ):
-            raise ValueError("UCF requires complete native model, loss and pair-transport recipe")
+            raise ValueError(
+                "UCF requires complete native model, loss and pair-transport recipe"
+            )
         count = construction["specific_classes"]
         label_map = construction["specific_label_map"]
         if (
@@ -128,7 +148,9 @@ class UCFTask(ImageClassificationTask):
                 for key, value in label_map.items()
             )
         ):
-            raise ValueError("UCF requires valid specific classes and an explicit source label map")
+            raise ValueError(
+                "UCF requires valid specific classes and an explicit source label map"
+            )
 
     @staticmethod
     def _initialize_encoders(model, init_weights, origin):

@@ -1,4 +1,5 @@
 """Method-owned AdamW, batch-coupled loss and step-wise cyclic scheduling."""
+
 import torch
 from detectors._shared.trainer import ImageClassificationTrainer
 from .loss import GenDLoss
@@ -24,16 +25,27 @@ class GenDTrainer(ImageClassificationTrainer):
             self.gradient_cache = self.gradient_cache_policy = None
             return
         from .gradient_cache import GenDGradientCache
+
         self.gradient_cache = GenDGradientCache(self.model, size)
         if size > logical_batch_size:
-            raise ValueError("gradient_cache_microbatch_size cannot exceed the logical loader batch size")
+            raise ValueError(
+                "gradient_cache_microbatch_size cannot exceed the logical loader batch size"
+            )
         self.gradient_cache_policy = self.gradient_cache.policy(logical_batch_size)
 
     def backward_batch(self, batch, images, labels, *, runtime, scaler):
         if self.gradient_cache is None:
-            return super().backward_batch(batch, images, labels, runtime=runtime, scaler=scaler)
-        return self.gradient_cache.backward(images, labels, objective=self.objective,
-            scaler=scaler, runtime=runtime, validate_loss=self.validate_loss)
+            return super().backward_batch(
+                batch, images, labels, runtime=runtime, scaler=scaler
+            )
+        return self.gradient_cache.backward(
+            images,
+            labels,
+            objective=self.objective,
+            scaler=scaler,
+            runtime=runtime,
+            validate_loss=self.validate_loss,
+        )
 
     def fit(self, loader, **kwargs):
         settings = kwargs["settings"]
@@ -42,7 +54,9 @@ class GenDTrainer(ImageClassificationTrainer):
             raise ValueError("GenD gradient caching requires the native FP32 protocol")
         self.steps_per_epoch = len(loader)
         if self.steps_per_epoch < 1 or len(loader.dataset) % loader.batch_size == 1:
-            raise ValueError("GenD cannot silently drop or train a singleton uniformity batch")
+            raise ValueError(
+                "GenD cannot silently drop or train a singleton uniformity batch"
+            )
         self.parent_schedule = None
         report = super().fit(loader, **kwargs)
         if self.gradient_cache is not None:
@@ -52,37 +66,63 @@ class GenDTrainer(ImageClassificationTrainer):
     def prepare_resume(self, parent):
         method = parent.get("method_state") or {}
         if method.get("profile") != "gend-author-ln-l2-ua":
-            raise ValueError("GenD requires a checkpoint with its author scheduler state")
+            raise ValueError(
+                "GenD requires a checkpoint with its author scheduler state"
+            )
         if method.get("gradient_cache") != self.gradient_cache_policy:
             raise ValueError("GenD gradient-cache execution policy changed")
         self.parent_schedule = method["schedule_spec"]
 
     def build_optimizer(self, settings):
-        if settings.get("optimizer", "adamw") != "adamw" or settings.get("weight_decay", 0.) != 0.:
-            raise ValueError("GenD author profile requires AdamW with zero weight decay")
+        if (
+            settings.get("optimizer", "adamw") != "adamw"
+            or settings.get("weight_decay", 0.0) != 0.0
+        ):
+            raise ValueError(
+                "GenD author profile requires AdamW with zero weight decay"
+            )
         rate = float(settings.get("learning_rate", 3e-4))
         low = float(settings.get("min_learning_rate", 1e-6))
         cycle = int(settings.get("cycle_epochs", 10))
         warmup = int(settings.get("warmup_epochs", 0))
         if not 0 < low < rate or cycle < 1 or warmup < 0:
             raise ValueError("Invalid GenD cyclic learning-rate schedule")
-        self.schedule_spec = {"learning_rate": rate, "minimum": low, "cycle_epochs": cycle,
-                              "warmup_epochs": warmup, "period_steps": cycle * self.steps_per_epoch,
-                              "warmup_steps": warmup * self.steps_per_epoch}
+        self.schedule_spec = {
+            "learning_rate": rate,
+            "minimum": low,
+            "cycle_epochs": cycle,
+            "warmup_epochs": warmup,
+            "period_steps": cycle * self.steps_per_epoch,
+            "warmup_steps": warmup * self.steps_per_epoch,
+        }
         if self.parent_schedule is not None:
             for key in ("learning_rate", "minimum", "cycle_epochs", "warmup_epochs"):
                 if self.schedule_spec[key] != self.parent_schedule[key]:
-                    raise ValueError("GenD scheduler policy changed at a stage boundary")
+                    raise ValueError(
+                        "GenD scheduler policy changed at a stage boundary"
+                    )
             self.schedule_spec = self.parent_schedule.copy()
-        optimizer = torch.optim.AdamW([p for p in self.model.parameters() if p.requires_grad],
-                                     lr=rate, weight_decay=0., betas=(.9, .999), eps=1e-8)
+        optimizer = torch.optim.AdamW(
+            [p for p in self.model.parameters() if p.requires_grad],
+            lr=rate,
+            weight_decay=0.0,
+            betas=(0.9, 0.999),
+            eps=1e-8,
+        )
         cyclic = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(
-            optimizer, T_0=self.schedule_spec["period_steps"], T_mult=1, eta_min=low)
+            optimizer, T_0=self.schedule_spec["period_steps"], T_mult=1, eta_min=low
+        )
         if self.schedule_spec["warmup_steps"]:
-            ramp = torch.optim.lr_scheduler.LinearLR(optimizer, start_factor=low/rate,
-                                                    total_iters=self.schedule_spec["warmup_steps"])
+            ramp = torch.optim.lr_scheduler.LinearLR(
+                optimizer,
+                start_factor=low / rate,
+                total_iters=self.schedule_spec["warmup_steps"],
+            )
             self.scheduler = torch.optim.lr_scheduler.SequentialLR(
-                optimizer, [ramp, cyclic], milestones=[self.schedule_spec["warmup_steps"]])
+                optimizer,
+                [ramp, cyclic],
+                milestones=[self.schedule_spec["warmup_steps"]],
+            )
         else:
             self.scheduler = cyclic
         optimizer.register_step_post_hook(self._after_step)
@@ -95,17 +135,29 @@ class GenDTrainer(ImageClassificationTrainer):
     def validate_optimizer_contract(self, before, carried):
         # The selected step's LR is dynamic; the immutable base rates/schedule
         # are separately checked in load_method_state_dict, then fully restored.
-        strip = lambda groups: [{k:v for k,v in g.items() if k not in ("lr", "initial_lr")} for g in groups]
+        strip = lambda groups: [
+            {k: v for k, v in g.items() if k not in ("lr", "initial_lr")}
+            for g in groups
+        ]
         if strip(before) != strip(carried):
             raise ValueError("GenD optimizer hyperparameters changed")
 
     def method_state_dict(self):
-        return {"version": 1, "profile": "gend-author-ln-l2-ua", "steps": self.steps,
-                "schedule_spec": self.schedule_spec, "scheduler": self.scheduler.state_dict(),
-                "gradient_cache": self.gradient_cache_policy}
+        return {
+            "version": 1,
+            "profile": "gend-author-ln-l2-ua",
+            "steps": self.steps,
+            "schedule_spec": self.schedule_spec,
+            "scheduler": self.scheduler.state_dict(),
+            "gradient_cache": self.gradient_cache_policy,
+        }
 
     def load_method_state_dict(self, state):
-        if not state or state.get("profile") != "gend-author-ln-l2-ua" or state["schedule_spec"] != self.schedule_spec:
+        if (
+            not state
+            or state.get("profile") != "gend-author-ln-l2-ua"
+            or state["schedule_spec"] != self.schedule_spec
+        ):
             raise ValueError("Mismatched GenD objective/scheduler checkpoint")
         if state.get("gradient_cache") != self.gradient_cache_policy:
             raise ValueError("Mismatched GenD gradient-cache execution policy")
