@@ -17,6 +17,10 @@ datasets/
 outputs/
 runs/
 checkpoints/
+/tests/
+/integration/
+/tools/
+/experiments/
 docs/
 *.md
 *.pth

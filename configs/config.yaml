@@ -2,7 +2,7 @@
 version: 1
 seed: 1024
 runtime:
-  device: cuda:0
+  device: auto
   precision: fp32
   log_level: INFO
   output_dir: ../outputs

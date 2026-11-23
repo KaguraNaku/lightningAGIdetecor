@@ -268,7 +268,7 @@ def main(argv=None):
         command.add_argument("--datasets", type=Path, help="Dataset registry YAML")
         command.add_argument("--env-file", type=Path)
         command.add_argument("--output-dir", type=Path)
-        command.add_argument("--device", help="cpu, auto, or an available PyTorch accelerator such as cuda:0")
+        command.add_argument("--device", help="Override the device (default: auto). Use cpu or an accelerator such as cuda.")
         command.add_argument("--precision", choices=["fp32", "fp16", "bf16"])
         if name != "check":
             command.add_argument(

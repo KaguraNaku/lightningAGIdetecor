@@ -35,8 +35,6 @@ features, full loss, gradients, BN buffers and one Adam update. Unit tests also
 cover positional/odd pairing, singleton failure, strict checkpoint conversion
 and the native-resolution unified workflow. ImageNet initialization is a separate
 gate; the binary head is seeded rather than trained in that check. Historical
-trained-detector scores and full-dataset reproduction remain unverified. Use
-tools/bounded_run.py for model checks and tools/test_cpu.py for serial capped
-regression.
+trained-detector scores and full-dataset reproduction remain unverified.
 
 *Created by Codex.*

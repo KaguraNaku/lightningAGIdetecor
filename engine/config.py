@@ -193,7 +193,7 @@ def read_experiment(path, *, require_fit=True, variables=None, env_file=None,
     if type(config["seed"]) is not int or not 0 <= config["seed"] < 2**32:
         raise ValueError("seed must be an integer in [0, 2**32)")
     runtime = config.setdefault("runtime", {})
-    runtime.setdefault("device", "cpu")
+    runtime.setdefault("device", "auto")
     runtime.setdefault("precision", "fp32")
     runtime.setdefault("log_level", "INFO")
     runtime.setdefault("output_dir", "outputs")

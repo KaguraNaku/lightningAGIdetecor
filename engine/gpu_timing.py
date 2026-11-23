@@ -6,7 +6,7 @@ import time
 
 import torch
 
-from .accelerator import available_accelerator
+from .accelerator import available_accelerator, resolve_device
 
 
 class GPUTimeRecorder:
@@ -15,11 +15,12 @@ class GPUTimeRecorder:
     Device elapsed time is measured on the current stream.
     No synthetic warmup runs are executed. All natural batches remain in totals.
     """
-    def __init__(self, *, device='cuda:0', warmup_batches=3, metadata=None,
+    def __init__(self, *, device=None, warmup_batches=3, metadata=None,
                  clock=time.perf_counter):
         if warmup_batches < 0:
             raise ValueError('warmup_batches must be nonnegative')
-        self.device, self.warmup_batches = torch.device(device), warmup_batches
+        self.device = resolve_device("auto") if device is None else torch.device(device)
+        self.warmup_batches = warmup_batches
         self.metadata, self.clock = dict(metadata or {}), clock
         current = available_accelerator() if self.device.type in {"cuda", "xpu"} else None
         self.device_events = current is not None and current.type == self.device.type

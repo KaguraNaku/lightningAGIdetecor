@@ -74,7 +74,4 @@ To resume a fitted model, pass ``model.pth`` to ``fit --checkpoint`` and keep
 the paired ``best.pth``. It contains the selected epoch's optimizer, scaler
 and RNG state. Use nonpersistent loader workers for resume.
 
-The tests in ``tests/test_effort.py`` cover model behavior and engine integration
-on small fixtures.
-
 *Created by Codex.*
