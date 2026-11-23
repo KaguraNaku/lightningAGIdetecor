@@ -29,14 +29,13 @@ def read_weights(path, *, encoding=None):
     return weights, {"checkpoint": str(path), "checkpoint_sha256": sha256(path)}
 
 
-def load_strict(model, weights, *, assign=False):
-    model.load_state_dict(weights, strict=True, assign=assign)
-    for module in model.modules():
-        # CLIP's position indices are nonpersistent and are not saved in state_dict.
-        if hasattr(module, "position_ids") and hasattr(module, "position_embedding"):
-            module.position_ids = torch.arange(
-                module.position_embedding.num_embeddings, device="cpu"
-            ).expand((1, -1))
+def restore_model(build, weights, *, initialize_buffers=None):
+    """Construct the model on meta and materialize it from its saved tensors."""
+    with torch.device("meta"):
+        model = build()
+    model.load_state_dict(weights, strict=True, assign=True)
+    if initialize_buffers is not None:
+        initialize_buffers(model)
     missing = [
         name
         for name, value in (*model.named_parameters(), *model.named_buffers())
@@ -45,13 +44,6 @@ def load_strict(model, weights, *, assign=False):
     if missing:
         raise ValueError(f"Unmaterialized model state: {missing}")
     return model
-
-
-def restore_model(build, weights):
-    """Construct the model on meta and materialize it from its saved tensors."""
-    with torch.device("meta"):
-        model = build()
-    return load_strict(model, weights, assign=True)
 
 
 def convert_checkpoint(settings, source, destination, *, threshold=0.5):
@@ -98,12 +90,9 @@ def main():
     parser.add_argument("--config", type=Path, required=True)
     parser.add_argument("--input", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
-    parser.add_argument("--legacy-weight-mode", choices=["merged", "unmerged"])
     args = parser.parse_args()
     config = yaml.safe_load(args.config.read_text())
     settings = dict(config["model"])
-    if args.legacy_weight_mode is not None:
-        settings["legacy_weight_mode"] = args.legacy_weight_mode
     print(
         convert_checkpoint(
             settings,

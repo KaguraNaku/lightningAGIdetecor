@@ -11,6 +11,8 @@ from .manifest import read_metadata
 
 
 def prepare_main(argv=None):
+    from engine.models import ModelRegistry
+
     parser = argparse.ArgumentParser(
         description="Index images into a manifest without copying data"
     )
@@ -20,8 +22,9 @@ def prepare_main(argv=None):
     parser.add_argument("--split", required=True, choices=["train", "val", "test"])
     parser.add_argument("--output", type=Path)
     parser.add_argument("--frames-per-video", type=int)
-    parser.add_argument("--model", choices=["prodet"], help="Bind model-specific training data through the same entry point")
-    parser.add_argument("--source-manifest", type=Path, help="Existing training manifest for ProDet source preparation")
+    parser.add_argument("--model", choices=[spec.name for spec in ModelRegistry.SPECS],
+                        help="Use a detector's manifest preparer")
+    parser.add_argument("--source-manifest", type=Path, help="Existing manifest for detector-specific preparation")
     parser.add_argument(
         "--limit",
         type=int,
@@ -29,20 +32,23 @@ def prepare_main(argv=None):
     )
     args = parser.parse_args(argv)
     config = DataConfig(args.config, args.env_file)
-    if args.model == "prodet":
-        if (args.dataset != "FaceForensics++" or args.split != "train"
-                or args.limit is not None or args.source_manifest is None):
-            parser.error("ProDet preparation requires FF++ train, --source-manifest and no --limit")
-        from detectors.prodet.protocol import ProDetSourcePreparer
+    if args.model:
+        if args.limit is not None or args.source_manifest is None:
+            parser.error("--model requires --source-manifest and cannot use --limit")
+        from engine.runtime import task_factory
+
+        model = {"factory": ModelRegistry.get(args.model).factory}
+        prepare = getattr(task_factory(model), "prepare_manifest", None)
+        if prepare is None:
+            parser.error(f"{args.model} does not provide a detector-specific manifest preparer")
         dataset = ManifestDataset(args.source_manifest, config)
-        if (args.frames_per_video is not None
-                and args.frames_per_video != dataset.header["sampling"].get("frames_per_video")):
-            parser.error("--frames-per-video must match the source manifest")
-        output = args.output or config.manifest_dir() / "FaceForensics++-train-prodet-bindings.jsonl"
-        print(json.dumps(ProDetSourcePreparer().prepare(dataset, output), indent=2))
+        if (dataset.header["dataset"], dataset.header["split"]) != (args.dataset, args.split):
+            parser.error("--dataset and --split must match the source manifest")
+        report = prepare(dataset, output=args.output, config=config, frames_per_video=args.frames_per_video)
+        print(json.dumps(report, indent=2))
         return
     if args.source_manifest is not None:
-        parser.error("--source-manifest requires --model prodet")
+        parser.error("--source-manifest requires --model")
     media_type = config.media_type(args.dataset)
     frame_count = args.frames_per_video
     if media_type == "image" and frame_count is not None:

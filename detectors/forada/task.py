@@ -33,6 +33,23 @@ def read_checkpoint(path):
 class ForAdaTask(ImageClassificationTask):
     trainer_class = ForAdaTrainer
     default_epochs = 60
+    model_file_fields = ("base_clip_checkpoint",)
+    import_ignored_settings = model_file_fields
+
+    @staticmethod
+    def configure_ufd_training(adaptation, *, warm_start):
+        adaptation["ForAda_supervision"] = "whole-image masks for fully generated images"
+
+    @staticmethod
+    def inspect_training_input(model, fit, training, validation):
+        if fit.get("ufd") is not None:
+            summary = WholeImageForAdaDataset(training).selection_receipt()
+        else:
+            masks = ForAdaDataset(
+                training, require_localized=model.get("training_profile") == "author_ffpp_8_32",
+            )
+            summary = masks.supervision_summary
+        return {"mask_supervision": summary}
 
     def __init__(self, settings, *, state=None):
         base_checkpoint = None

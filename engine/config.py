@@ -143,11 +143,6 @@ def read_experiment(path, *, require_fit=True, variables=None, env_file=None,
             or inputs[fit["input"]]["split"] != "train"
         ):
             raise ValueError("fit.input must name a train input")
-        if factory == ModelRegistry.get("lightning").factory:
-            if "ridge_lambda" in fit:
-                raise ValueError("Set RIDGE_LAMBDA in detectors/lightning/config.py")
-            if any(fit.get(key) is not None for key in ("epochs", "patience", "monitor")):
-                raise ValueError("Lightning fits analytically without epochs or validation-based selection")
         validation = fit.get("validation_input")
         if validation is not None and (
             not isinstance(validation, str)
@@ -162,10 +157,6 @@ def read_experiment(path, *, require_fit=True, variables=None, env_file=None,
                 fit.setdefault("monitor", "video.auc")
             elif media_type == "image":
                 fit.setdefault("monitor", "image.auc")
-        if (public and ModelRegistry.method_for(model) == "prodet"
-                and "checkpoint" not in fit and not fit.get("ufd")
-                and model.get("data_profile") != "specialized_quadruples"):
-            raise ValueError("ProDet training requires a manifest with the author quadruple bindings")
     evaluation = config.setdefault("evaluation", {})
     if evaluation_inputs is not None:
         if not evaluation_inputs:
@@ -219,13 +210,22 @@ def read_experiment(path, *, require_fit=True, variables=None, env_file=None,
         if "$" not in item["manifest"]:
             item["manifest"] = str(resources.path(item["manifest"], must_exist=False))
     if require_fit:
+        from .runtime import task_factory
+
         fit = config["fit"]
+        registered = {spec.factory for spec in ModelRegistry.SPECS}
+        selected_task = task_factory(model) if ModelRegistry.resolve_factory(factory) in registered else None
+        if (validate := getattr(selected_task, "validate_fit_config", None)) is not None:
+            validate(model, fit, public=public)
+        file_fields = getattr(selected_task, "model_file_fields", ())
         if "checkpoint" in fit:
             fit["checkpoint"] = str(resources.path(fit["checkpoint"]))
-            if "training_neighbors" in model:
-                model.update(resources.model_settings({"training_neighbors": model["training_neighbors"]}))
+            fields = getattr(selected_task, "resume_input_fields", ())
+            model.update(resources.model_settings(
+                {key: model[key] for key in fields if key in model}, file_fields=file_fields,
+            ))
         else:
-            config["model"] = resources.model_settings(config["model"])
+            config["model"] = resources.model_settings(model, file_fields=file_fields)
         if "ufd" in fit and "checkpoint" not in fit:
             if not isinstance(fit["ufd"], dict):
                 raise ValueError("fit.ufd must be a mapping")

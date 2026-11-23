@@ -21,7 +21,6 @@ Unexpected body keys or shapes fail. Trained detector imports and self-contained
 restoration load strictly.
 
 The Xception entry in configs/config.yaml requires a local initialization path.
-It selects models using source validation, under remake-source-validation-v1;
-this is not an assertion of original sample/protocol reproduction. Use
+It selects checkpoints on the source validation split. Use
 tools/bounded_run.py for execution. Do not change batch size or claim a full
 training run simply to avoid a resource limit; retain the failed bounded run.

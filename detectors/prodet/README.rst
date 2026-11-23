@@ -204,9 +204,9 @@ snapshots are retained. This is fixture data, not an author corpus or score test
 Seven Dataset contracts verify complete view coverage, repeated seeded spawn
 loading, malformed unused NPY files, mutated bindings, undecodable requested
 images, collator identities and fatal worker-to-parent error propagation. The
-one-worker workflow checks conditional replay under remake worker seeding;
-it does not reproduce original upstream or eight-worker global RNG. The initial
-native harness failed on a missing ``Tensor`` annotation binding before data
+one-worker workflow checks conditional replay with a seeded worker. Its results
+apply to that worker configuration. The initial native harness failed on a
+missing ``Tensor`` annotation binding before data
 iteration. Only that reference namespace was corrected; the failed run remains.
 
 Commands, raw native/candidate epochs, generation/selection receipts, resource
@@ -264,10 +264,9 @@ bindings and the neighbor sidecar.
 validation and evaluation. The original decoder/getitem/augmentation/torchvision
 and collator were executed against Task preprocessing for three seeds and three
 roles, totaling288 declared PNG views. All pixels, labels and Python/NumPy/Torch
-RNG match. Validation uses original test-mode clean pixels as formal testing does;
-the remake source-val split is an explicit selection policy. Fixtures reuse the
-same files between transform roles and do not constitute an isolated training
-experiment. Native parquet pixel parity is not established by this PNG audit.
+RNG match. Validation uses test-mode preprocessing on the source validation
+split. Fixtures reuse the same PNG files between transform roles. This audit
+covers pixel parity on PNG inputs.
 
 An actual original full ProDet model at its constructed native checkpoint was
 evaluated on32 of those PNG views. Its probabilities match the Task, a freshly

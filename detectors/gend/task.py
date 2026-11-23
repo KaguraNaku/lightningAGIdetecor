@@ -5,6 +5,7 @@ from huggingface_hub import hf_hub_download
 from detectors._shared.checkpoint import restore_model
 from detectors._shared.task import ImageClassificationTask
 from detectors._shared.transforms import preprocessing_config
+from models.clip import initialize_clip_position_ids
 from .checkpoint import read_gend_weights
 from .detector import GenDDetector
 from .encoder import GenDCLIPEncoder
@@ -167,7 +168,7 @@ class GenDTask(ImageClassificationTask):
             return GenDDetector(encoder, head=construction["head"])
 
         if weights is not None:
-            model = restore_model(build, weights)
+            model = restore_model(build, weights, initialize_buffers=initialize_clip_position_ids)
             # Keep trainable tensors independent of the input state dictionary.
             for parameter in model.parameters():
                 if parameter.requires_grad:

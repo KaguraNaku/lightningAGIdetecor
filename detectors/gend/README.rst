@@ -91,7 +91,7 @@ test logs identify their paths. Successful temporary test fixtures are removed.
 
 The example preserves train batch24/eval batch32, Adam lr2e-4/decay5e-4,
 disabled augmentation and no scheduler. Eleven sweeps match source epochs0..10.
-Remake manifests and validation selection differ from the full original
-experiment. Historical benchmark checkpoint scores, GPU numerical alignment and
+The training configuration selects checkpoints on the source validation manifest.
+Historical benchmark checkpoint scores, GPU numerical alignment and
 full-dataset reproduction remain unverified. All model checks use bounded_run.py:
 one CPU job, RAM3072MiB, swap0, CPU2 and host RAM/disk reserve4096MiB.

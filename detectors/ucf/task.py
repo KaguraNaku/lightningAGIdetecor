@@ -52,6 +52,15 @@ def expand_progan_head(task):
 class UCFTask(ImageClassificationTask):
     trainer_class = UCFTrainer
 
+    @staticmethod
+    def ufd_model_settings():
+        return {"specific_classes": len(UFD_LABEL_MAP), "specific_label_map": dict(UFD_LABEL_MAP)}
+
+    def configure_ufd_training(self, adaptation, *, warm_start):
+        if warm_start:
+            expand_progan_head(self)
+        adaptation["UCF_domain_map"] = dict(UFD_LABEL_MAP)
+
     def __init__(self, settings, *, state=None):
         expected_preprocessing = preprocessing_config(256, (0.5,) * 3, (0.5,) * 3)
         if state is None:
@@ -91,7 +100,7 @@ class UCFTask(ImageClassificationTask):
         }
         origin = {
             "method": "ucf",
-            "selection_policy": "Remake explicit source manifests and validation; not native full experiment",
+            "selection_policy": "Explicit source manifests and validation",
             "label_binding": "Explicit metadata overrides declared category map; no automatic alias correction or type renumbering",
             "evaluation_observers": "Native label/probability counters optional in direct model API; unified evaluator owns metrics",
             "exact_optimizer_rng_resume_supported": False,

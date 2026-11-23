@@ -31,9 +31,7 @@ class ResourceResolver:
 
     VARIABLE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
     FILE_FIELDS = frozenset({
-        "init_weights", "initial_checkpoint", "base_clip_checkpoint",
-        "checkpoint", "mapping_path",
-        "parent_checkpoint", "training_neighbors",
+        "init_weights", "initial_checkpoint", "checkpoint", "parent_checkpoint", "path",
     })
     DIRECTORY_FIELDS = frozenset({"cache_dir", "assets_dir", "model_dir"})
 
@@ -83,8 +81,10 @@ class ResourceResolver:
                 raise FileNotFoundError(f"Required {kind} resource not found: {path}")
         return path
 
-    def model_settings(self, settings):
+    def model_settings(self, settings, *, file_fields=()):
         """Resolve input assets in a copied model declaration, including parents."""
+        file_fields = self.FILE_FIELDS.union(file_fields)
+
         def visit(value):
             if isinstance(value, list):
                 return [visit(item) for item in value]
@@ -92,7 +92,7 @@ class ResourceResolver:
                 return deepcopy(value)
             result = {}
             for key, item in value.items():
-                if isinstance(item, str) and key in self.FILE_FIELDS | {"path"}:
+                if isinstance(item, str) and key in file_fields:
                     result[key] = str(self.path(item))
                 elif isinstance(item, str) and key in self.DIRECTORY_FIELDS:
                     result[key] = str(self.path(item, kind="directory"))

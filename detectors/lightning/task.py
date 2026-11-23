@@ -33,6 +33,23 @@ class LightningTask:
     A fresh fit uses config.py. Set checkpoint to continue with the saved
     encoder, maps and source statistics.
     """
+    default_allow_tf32 = True
+    model_file_fields = ("mapping_path",)
+
+    @staticmethod
+    def validate_fit_config(model, fit, *, public):
+        if "ridge_lambda" in fit:
+            raise ValueError("Set RIDGE_LAMBDA in detectors/lightning/config.py")
+        if any(fit.get(key) is not None for key in ("epochs", "patience", "monitor")):
+            raise ValueError("Lightning fits analytically without epochs or validation-based selection")
+
+    @staticmethod
+    def resume_model_settings(model, path):
+        reference = {"path": str(path)}
+        configured = model.get("checkpoint")
+        if isinstance(configured, dict) and "dataset" in configured:
+            reference["dataset"] = configured["dataset"]
+        return {"factory": model["factory"], "checkpoint": reference}
 
     def __init__(self, settings, *, state=None):
         self.readout = None

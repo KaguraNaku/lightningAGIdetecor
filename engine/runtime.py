@@ -67,11 +67,15 @@ class Runtime:
         return torch.autocast(self.device.type, dtype=dtype)
 
 
-def create_task(model, *, state=None) -> ExperimentTask:
+def task_factory(model):
     from .models import ModelRegistry
 
     module, name = ModelRegistry.resolve_factory(model["factory"]).split(":", 1)
-    factory = getattr(import_module(module), name)
+    return getattr(import_module(module), name)
+
+
+def create_task(model, *, state=None) -> ExperimentTask:
+    factory = task_factory(model)
     settings = {k: v for k, v in model.items() if k != "factory"}
     task = factory(settings, state=state)
     for method in ("fit", "predict", "state_dict"):

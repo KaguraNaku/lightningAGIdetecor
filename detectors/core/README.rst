@@ -25,10 +25,9 @@ the fixed objective coefficient; they restore without old sources or weight
 files. The common checkpoint converter is supported. No legacy imports or
 optional model packages are used in production.
 
-core_ffpp.yaml retains batch 32, Adam defaults and 10 epochs, but uses remake
-FFPP manifests and source-validation selection; the local legacy YAML trains on
-FF-NT. It does not reproduce old sample membership or selection. Do not replace
-batch-halves pairing with paired-image augmentation based only on a method name.
+The CORE FF++ configuration uses batch 32, Adam defaults and 10 epochs. It uses
+FF++ manifests and selects checkpoints by source validation. The original
+configuration uses FF-NT. CORE pairs images by batch halves.
 
 The native-resolution batch-2 differential compares the actual local detector,
 ConsistencyCos and backbone definitions with the rewrite, including auxiliary

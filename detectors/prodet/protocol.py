@@ -1,7 +1,7 @@
 """Explicit native SBIPlusV2 pairing and ordered-neighbor source bindings.
 
 Windows source strings describe native grouping/sorting; actual files use the
-remake manifest's relative POSIX paths. No image generation or source discovery
+source manifest's relative POSIX paths. No image generation or source discovery
 occurs here. The declared manifest order replaces upstream dataset discovery.
 """
 

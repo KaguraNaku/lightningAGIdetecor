@@ -76,7 +76,6 @@ class _Scorer:
 
 class ImageClassificationTrainer:
     prediction_unit = "image"
-    supports_gradient_cache = False
 
     def __init__(self, model, *, origin=None, objective=None):
         self.model = model
@@ -242,8 +241,6 @@ class ImageClassificationTrainer:
             raise ValueError(
                 "This trainer uses whole batches; microbatching changes BatchNorm semantics"
             )
-        if settings.get("gradient_cache_microbatch_size") is not None and not self.supports_gradient_cache:
-            raise ValueError("Output gradient caching is supported only by the native GenD trainer")
         epochs = integer(settings, "epochs", 10)
         patience = settings.get("patience")
         if patience is not None:
@@ -262,7 +259,7 @@ class ImageClassificationTrainer:
         output = Path(output_dir)
         output.mkdir(parents=True, exist_ok=True)
         protocol = {
-            "id": "remake-source-validation-v1",
+            "id": "source-validation-v1",
             "origin": self.origin,
             "settings": settings,
             "monitor": monitor,
@@ -281,7 +278,7 @@ class ImageClassificationTrainer:
                     ("validation", validation_loader.dataset),
                 )
             },
-            "note": "Source validation is the remake selection policy; not a claim of original full-protocol reproduction",
+            "note": "Model selection uses the source validation split.",
         }
         atomic_save(output / "protocol.json", protocol)
         atomic_save(

@@ -21,7 +21,7 @@ from .detector import ProDetDetector
 from .images import ProDetImageDataset
 from .initialization import EfficientNetB4Initializer
 from .trainer import ProDetTrainer
-from .protocol import neighbor_identity
+from .protocol import ProDetSourcePreparer, neighbor_identity, validate_source_splits
 
 
 PROFILES = {"native_entrypoint", "specialized_quadruples"}
@@ -47,8 +47,6 @@ def preprocessing_for(profile):
         "evaluation_augmented": False,
         "with_landmark": profile == "specialized_quadruples",
         "with_mask": False,
-        "validation_role": "remake_source_val_with_native_test_mode_pixels;not_target_selection",
-        "worker_RNG": "remake_seeded_workers;not_original_upstream_or8worker_global_RNG",
     }
 
 
@@ -86,6 +84,56 @@ def validate_neighbors(value):
 
 class ProDetTask(ImageClassificationTask):
     prediction_unit = "image"
+    model_file_fields = ("training_neighbors",)
+    resume_input_fields = import_ignored_settings = model_file_fields
+
+    @staticmethod
+    def validate_fit_config(model, fit, *, public):
+        if (public and "checkpoint" not in fit and not fit.get("ufd")
+                and model.get("data_profile") != "specialized_quadruples"):
+            raise ValueError("ProDet training requires a manifest with the author quadruple bindings")
+
+    @staticmethod
+    def prepare_manifest(dataset, *, output, config, frames_per_video):
+        if frames_per_video is not None and frames_per_video != dataset.header["sampling"].get("frames_per_video"):
+            raise ValueError("--frames-per-video must match the source manifest")
+        output = output or config.manifest_dir() / "FaceForensics++-train-prodet-bindings.jsonl"
+        return ProDetSourcePreparer().prepare(dataset, output)
+
+    @staticmethod
+    def inspect_training_input(model, fit, training, validation):
+        if model.get("data_profile") != "specialized_quadruples":
+            return {}
+        if validation is None:
+            raise ValueError("ProDet preflight requires the source validation input")
+        neighbors = model.get("training_neighbors")
+        if isinstance(neighbors, str):
+            neighbors = neighbor_identity(neighbors)
+        source = ProDetDataset(training, neighbors=neighbors)
+        return {
+            "prodet": {
+                "data_profile": model["data_profile"],
+                "quadruples": len(source),
+                "model_views": len(source.records),
+                "neighbors": source.plan.neighbor_identity,
+                "landmarks": len(source.landmark_arrays),
+            },
+            "source_split_validation": validate_source_splits(source.plan, validation),
+        }
+
+    @staticmethod
+    def inspect_batch(batch):
+        if "prodet_labels" not in batch:
+            return {}
+        targets = batch["prodet_labels"]
+        count = len(batch["pixel_values"])
+        expected = torch.tensor([0., 1., 3., 2.]).repeat_interleave(count // 4)
+        if count % 4 or targets.dtype != torch.float32 or not torch.equal(targets, expected):
+            raise ValueError("ProDet preflight requires real/SBI/BI/deepfake ordered float domains")
+        return {
+            "quadruples": count // 4,
+            "domain_counts": {str(domain): int((targets == domain).sum()) for domain in (0, 1, 3, 2)},
+        }
 
     def __init__(self, settings, *, state=None):
         recipe = selected_recipe()
@@ -151,6 +199,9 @@ class ProDetTask(ImageClassificationTask):
 
     def _restore_config(self, settings, state):
         construction, preprocessing, origin, weights = self.unpack_state(state)
+        if isinstance(preprocessing, dict):
+            preprocessing = {key: value for key, value in preprocessing.items()
+                             if key not in {"validation_role", "worker_RNG"}}
         self.validate_metadata(construction, preprocessing, origin)
         if "data_profile" in settings and not same_metadata(
             settings["data_profile"], construction["data_profile"]

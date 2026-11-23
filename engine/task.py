@@ -29,6 +29,17 @@ An optional prediction_unit attribute declares "image" (the legacy default) or
 source video IDs; evaluation reports clip metrics and separately aggregated
 video metrics. Never fabricate image metrics from one clip-level score. The
 task's saved construction state must retain its prediction-unit contract.
+
+Tasks can declare extra model paths in model_file_fields. Declare the subset
+needed for the next training input in resume_input_fields, and paths unused
+when importing complete weights in import_ignored_settings.
+validate_fit_config(model, fit, public=...) checks a selected fit before model
+construction. resume_model_settings(model, path) is for tasks that restore
+all fit state directly from the exported checkpoint.
+
+The data commands call optional prepare_manifest and inspect_training_input
+hooks on the selected factory without constructing the model. Batch inspection
+calls inspect_batch(batch) on the initialized task for extra diagnostics.
 """
 
 from pathlib import Path

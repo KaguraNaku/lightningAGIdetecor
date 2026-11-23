@@ -188,8 +188,6 @@ inputs:
 # detectors/lightning/config.py. An optional settings.mapping_path reuses a fitted map.
 models:
   lightning:
-    runtime:
-      allow_tf32: true
     loader:
       decode_error_patience: 10
     train_loader:

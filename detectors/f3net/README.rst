@@ -24,9 +24,9 @@ fail without random fallback or automatic download. Strict raw conversion and
 standalone restore preserve geometry, masks, DCT tensors, stem and dropout.
 
 Native preprocessing is RGB cubic resize to 256, mean/std 0.5, no augmentation.
-The FFPP example keeps batch 32 and optimizer defaults but the old config trains
-on FF-NT. Remake manifests and source validation do not assert original sample
-membership, order or model-selection reproduction. Whole batches are retained.
+The FF++ configuration uses batch 32, the original optimizer defaults and source
+validation. The original configuration uses FF-NT. Training uses whole batches.
+The source manifests define sample membership and order.
 
 Native-resolution batch-2 fixtures check fresh initialization, preprocessing,
 FAD output, classifier-visible features, logits, CE, gradients, BN buffers and

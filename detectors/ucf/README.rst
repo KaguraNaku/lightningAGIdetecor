@@ -99,7 +99,7 @@ resolution best/last selection/save/restore/evaluation. A pinned-AUC fixture tes
 selection independently from the separate unmocked miniature validation workflow.
 
 Default source settings are Adam2e-4, decay5e-4, no scheduler and six inclusive
-sweeps. Remake source validation/selection is an explicit policy. Example source
+sweeps. Best checkpoints are selected on the source validation split. Example source
 pairbatch16/effective32 is not reproduced by bounded miniature pairbatch1/2 tests.
 Standalone inference needs neither initializer files nor training data; strict
 state includes both encoders, unused classifiers, projections, both heads and

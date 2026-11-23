@@ -7,6 +7,7 @@ from backbones.load_backbone import load_backbone
 from data.loader import ImageCollator
 from detectors._shared.checkpoint import restore_model
 from detectors._shared.task import ImageClassificationTask
+from models.clip import initialize_clip_position_ids
 
 from .detector import EffortDetector
 from .trainer import EffortTrainer
@@ -83,7 +84,7 @@ class EffortTask(ImageClassificationTask):
         def build():
             return EffortDetector(CLIPVisionModel(config), retained_rank=rank, initialize=False)
 
-        return restore_model(build, weights)
+        return restore_model(build, weights, initialize_buffers=initialize_clip_position_ids)
 
     def build_collator(self, *, training):
         return ImageCollator(transform=make_transform(self.preprocessing, training=training))

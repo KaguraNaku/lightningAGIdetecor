@@ -97,14 +97,11 @@ def execute(
             status["checkpoint"] = CheckpointReference(checkpoint).state_dict()
         else:
             task = create_training_task(config)
-        if (
-            runtime.device.type == "cuda"
-            and "allow_tf32" not in config["runtime"]
-            and ModelRegistry.method_for(config["model"]) == "lightning"
-        ):
+        default_tf32 = getattr(task, "default_allow_tf32", None)
+        if runtime.device.type == "cuda" and "allow_tf32" not in config["runtime"] and default_tf32 is not None:
             previous_tf32 = torch.backends.cuda.matmul.allow_tf32, torch.backends.cudnn.allow_tf32
-            Runtime.set_tf32(True)
-            config["runtime"]["allow_tf32"] = True
+            Runtime.set_tf32(default_tf32)
+            config["runtime"]["allow_tf32"] = default_tf32
         (directory / "resolved-config.yaml").write_text(
             yaml.safe_dump(config, sort_keys=False)
         )
@@ -220,7 +217,6 @@ def main(argv=None):
     importer.add_argument("--env-file", type=Path)
     importer.add_argument("--input", required=True, type=Path, help="Original complete detector checkpoint")
     importer.add_argument("--output", required=True, type=Path, help="New engine checkpoint; existing files are preserved")
-    importer.add_argument("--legacy-weight-mode", choices=["merged", "unmerged"])
     for name in ("fit", "evaluate", "run", "check"):
         command = commands.add_parser(name)
         command.add_argument(
@@ -239,7 +235,7 @@ def main(argv=None):
         if name != "check":
             command.add_argument(
                 "--tf32", dest="allow_tf32", action=argparse.BooleanOptionalAction,
-                help="Allow TF32 on CUDA; enabled by default for Lightning",
+                help="Allow TF32 on CUDA",
             )
             command.add_argument(
                 "--timing", action=argparse.BooleanOptionalAction, default=False,
@@ -278,8 +274,9 @@ def main(argv=None):
     try:
         if args.command == "import-checkpoint":
             from .fit import CheckpointImporter
-            converted = CheckpointImporter(args.config, model_name=args.model, env_file=args.env_file,
-                legacy_weight_mode=args.legacy_weight_mode).convert(args.input, args.output)
+            converted = CheckpointImporter(args.config, model_name=args.model, env_file=args.env_file).convert(
+                args.input, args.output
+            )
             print(converted)
             return
         if args.command == "check":

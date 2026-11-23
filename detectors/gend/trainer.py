@@ -5,8 +5,6 @@ from .loss import GenDLoss
 
 
 class GenDTrainer(ImageClassificationTrainer):
-    supports_gradient_cache = True
-
     def __init__(self, model, *, origin=None):
         super().__init__(model, origin=origin, objective=GenDLoss())
         self.steps = 0

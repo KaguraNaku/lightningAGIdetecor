@@ -8,7 +8,7 @@ import torch
 
 from .models import ModelRegistry
 from .resources import resolve_asset
-from .runtime import atomic_save, create_task
+from .runtime import atomic_save, create_task, task_factory
 
 
 def read_checkpoint(reference, *, require_checksum=False, encoding=None):
@@ -20,35 +20,28 @@ def read_checkpoint(reference, *, require_checksum=False, encoding=None):
     return torch.load(path, map_location="cpu", weights_only=True, mmap=zipfile.is_zipfile(path), **options)
 
 
-def _initial_ufd_detector(model, policy, method):
+def _initial_ufd_detector(model, policy):
     adaptation = {
         "regime": policy["regime"],
         "source": "UFD/ProGAN",
         "optimizer": "Fresh native optimizer per fit",
     }
-    if method == "ucf":
-        from detectors.ucf.task import UFD_LABEL_MAP, expand_progan_head
-
-        model = {**model, "specific_classes": 6, "specific_label_map": dict(UFD_LABEL_MAP)}
-        adaptation["UCF_domain_map"] = dict(UFD_LABEL_MAP)
-    if method == "forada":
-        adaptation["ForAda_supervision"] = "whole-image mask for fully generated images;native losses retained"
-
+    if (model_settings := getattr(task_factory(model), "ufd_model_settings", None)) is not None:
+        model = {**model, **model_settings()}
     parent = policy.get("parent_checkpoint")
     if parent is None:
-        return create_task(model), model, adaptation
-
-    reference = {"path": parent, "sha256": policy["parent_sha256"]}
-    saved = read_checkpoint(reference, require_checksum=True)
-    if ModelRegistry.resolve_factory(saved["model"]["factory"]) != model["factory"]:
-        raise ValueError("FF++ parent method differs from the selected detector")
-    task = create_task(saved["model"], state=saved["task"])
-    validate_parent = getattr(task, "validate_training_parent", None)
-    if callable(validate_parent):
-        validate_parent(model)
-    if method == "ucf":
-        expand_progan_head(task)
-    adaptation["parent"] = {**reference, "selected_epoch": saved["fit_report"]["best_epoch"]}
+        task = create_task(model)
+    else:
+        reference = {"path": parent, "sha256": policy["parent_sha256"]}
+        saved = read_checkpoint(reference, require_checksum=True)
+        if ModelRegistry.resolve_factory(saved["model"]["factory"]) != model["factory"]:
+            raise ValueError("FF++ parent method differs from the selected detector")
+        task = create_task(saved["model"], state=saved["task"])
+        if (validate_parent := getattr(task, "validate_training_parent", None)) is not None:
+            validate_parent(model)
+        adaptation["parent"] = {**reference, "selected_epoch": saved["fit_report"]["best_epoch"]}
+    if (adapt := getattr(task, "configure_ufd_training", None)) is not None:
+        adapt(adaptation, warm_start=parent is not None)
     return task, model, adaptation
 
 
@@ -76,7 +69,7 @@ def create_training_task(config):
     if policy.get("regime") != ("FFpp_to_UFD" if parent else "fresh_UFD"):
         raise ValueError("UFD regime must match the declared checkpoint initialization")
 
-    task, model, adaptation = _initial_ufd_detector({**model, "factory": factory}, policy, method)
+    task, model, adaptation = _initial_ufd_detector({**model, "factory": factory}, policy)
     task.origin["UFD_adaptation"] = adaptation
     config["model"] = model
     return task
@@ -86,12 +79,8 @@ def _resume_training_task(config):
     model, settings = config["model"], config["fit"]
     path = Path(settings["checkpoint"])
     selected = ModelRegistry.method_for(model)
-    if selected == "lightning":
-        reference = {"path": str(path)}
-        configured = model.get("checkpoint")
-        if isinstance(configured, dict) and "dataset" in configured:
-            reference["dataset"] = configured["dataset"]
-        config["model"] = {"factory": model["factory"], "checkpoint": reference}
+    if (resume := getattr(task_factory(model), "resume_model_settings", None)) is not None:
+        config["model"] = resume(model, path)
         return create_task(config["model"])
     saved = read_model_checkpoint(path)
     if selected != ModelRegistry.method_for(saved["model"]):
@@ -147,10 +136,10 @@ class CheckpointImporter:
     """Import complete native weights without opening datasets or fitting a model."""
 
     INITIALIZATION_FIELDS = frozenset({
-        "initial_checkpoint", "init_weights", "initialization", "base_clip_checkpoint",
+        "initial_checkpoint", "init_weights", "initialization",
     })
 
-    def __init__(self, config_path, *, model_name=None, env_file=None, legacy_weight_mode=None):
+    def __init__(self, config_path, *, model_name=None, env_file=None):
         from .config import read_experiment
         from .models import ModelRegistry
         from .resources import ResourceResolver
@@ -164,17 +153,12 @@ class CheckpointImporter:
             raise ValueError("Raw checkpoint import requires a native detector Task")
         # Full detector weights replace initialization assets, not the declared
         # architecture or preprocessing. Do not require unused ImageNet files.
-        model = {key: value for key, value in model.items()
-                 if key not in self.INITIALIZATION_FIELDS}
-        if ModelRegistry.method_for(model) == "prodet":
-            # Training-only pair bindings do not participate in inference or
-            # complete-weight import. Preserve all architecture/score settings.
-            model.pop("training_neighbors", None)
-        if legacy_weight_mode is not None:
-            if ModelRegistry.method_for(model) != "effort":
-                raise ValueError("--legacy-weight-mode applies only to Effort")
-            model["legacy_weight_mode"] = legacy_weight_mode
-        self.settings = ResourceResolver(path.parent, env_file=env_file).model_settings(model)
+        factory = task_factory(model)
+        excluded = self.INITIALIZATION_FIELDS.union(getattr(factory, "import_ignored_settings", ()))
+        model = {key: value for key, value in model.items() if key not in excluded}
+        self.settings = ResourceResolver(path.parent, env_file=env_file).model_settings(
+            model, file_fields=getattr(factory, "model_file_fields", ()),
+        )
         self.threshold = config["evaluation"]["threshold"]
 
     def convert(self, source, destination):

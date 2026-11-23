@@ -3,7 +3,7 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "lightning-remake"
+name = "lightning-detector"
 version = "0.1.0"
 description = "Nine lazily loaded image forensic detectors and their experiment engine"
 readme = "README.md"

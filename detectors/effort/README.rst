@@ -1,5 +1,5 @@
-Effort in the remake pipeline
-============================
+Effort
+======
 
 ``EffortTask`` implements the shared experiment contract and composes an
 ``EffortDetector`` and an ``EffortTrainer``. The detector returns two logits;
@@ -38,12 +38,11 @@ after averaging frame probabilities, with patience 2 and minimum improvement
 0.0001. The best weights are restored before the shared engine saves model.pth.
 Test inputs never enter the trainer. The probability threshold is 0.5.
 
-The config uses remake's uniformly spaced manifest sampler. It does not claim
-the author's first-eight-JSON-frame protocol or the historical run's frozen
-sample membership. For historical comparisons, import the exact recorded sample
-membership into manifests and preserve the selection seed separately from the
-training seed. PIL decoding is retained; the migration audit compares pixels
-to the author's OpenCV decoding on its selected source images.
+The config samples evenly spaced frames when preparing a manifest. The author
+uses the first eight frames from each JSON entry. For historical comparisons,
+import the exact recorded sample membership into manifests and preserve the
+selection seed separately from the training seed. PIL decoding is retained.
+The pixel audit compares it with the author's OpenCV decoding.
 
 Legacy weights and offline evaluation
 -------------------------------------
@@ -52,11 +51,11 @@ Convert a checkpoint once, then use the shared evaluation entry point::
 
     uv run python -m detectors.effort.checkpoint \
         --input weights/effort-author.pth \
-        --output outputs/remake-effort.pth \
+        --output outputs/effort-converted.pth \
         --local-files-only
     uv run python engine.py evaluate \
         --model effort \
-        --checkpoint outputs/remake-effort.pth
+        --checkpoint outputs/effort-converted.pth
 
 Conversion supports a raw author state_dict or a training envelope containing
 state_dict, with optional DataParallel module prefixes. It requires the CLIP
