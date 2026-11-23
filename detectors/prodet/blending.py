@@ -5,7 +5,7 @@ import random
 import cv2
 import numpy as np
 
-from detectors._shared.augmentation import AugmentationLibrary
+from detectors._shared.augmentation import load_albumentations
 from .masks import FaceHullMask
 
 
@@ -32,7 +32,7 @@ class SelfBlendingGenerator:
     def __init__(self):
         from .transforms import RandomDownScale
 
-        A = AugmentationLibrary.load()
+        A = load_albumentations()
         self.transforms = A.Compose(
             [
                 A.RGBShift((-20, 20), (-20, 20), (-20, 20), p=0.3),
@@ -82,7 +82,7 @@ class SelfBlendingGenerator:
 
     @staticmethod
     def randaffine(image, mask):
-        A = AugmentationLibrary.load()
+        A = load_albumentations()
         affine = A.Affine(
             translate_percent={"x": (-0.03, 0.03), "y": (-0.015, 0.015)},
             scale=[0.95, 1 / 0.95],

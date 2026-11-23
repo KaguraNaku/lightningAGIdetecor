@@ -1,8 +1,11 @@
 """Importable native downscale transform for spawned ProDet loader workers."""
 
-import albumentations as A
 import cv2
 import numpy as np
+
+from detectors._shared.augmentation import load_albumentations
+
+A = load_albumentations()
 
 
 class RandomDownScale(A.core.transforms_interface.ImageOnlyTransform):

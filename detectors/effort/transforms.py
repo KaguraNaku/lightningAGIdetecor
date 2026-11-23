@@ -6,16 +6,15 @@ import cv2
 import numpy as np
 import torch
 
+from detectors._shared.augmentation import load_albumentations
+
 MEAN = (0.48145466, 0.4578275, 0.40821073)
 STD = (0.26862954, 0.26130258, 0.27577711)
 PROFILE = "effort-author-96f5dea-albumentations-1.3.1"
 
 
 def author_augmentation():
-    import albumentations as A
-
-    if A.__version__ != "1.3.1":
-        raise RuntimeError("Effort native training requires albumentations==1.3.1; run uv sync")
+    A = load_albumentations()
     return A.Compose([
         A.HorizontalFlip(p=0.5),
         A.RandomBrightnessContrast(brightness_limit=0.2, contrast_limit=0.2, p=0.5),

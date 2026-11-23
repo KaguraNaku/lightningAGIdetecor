@@ -6,6 +6,8 @@ import cv2
 import numpy as np
 import torch
 
+from .augmentation import load_albumentations
+
 PROFILE = "dfb-local-rgb-cubic-albu131-v1"
 DEFAULT_AUGMENTATION = {
     "flip_prob": 0.5,
@@ -32,10 +34,7 @@ def preprocessing_config(size, mean, std, *, augmentation=True, data_aug=None):
 
 
 def build_augmentation(config):
-    import albumentations as A
-
-    if A.__version__ != "1.3.1":
-        raise RuntimeError("This preprocessing profile requires albumentations==1.3.1")
+    A = load_albumentations()
     return A.Compose(
         [
             A.HorizontalFlip(p=config["flip_prob"]),

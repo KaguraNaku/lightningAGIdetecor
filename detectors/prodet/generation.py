@@ -9,7 +9,7 @@ import random
 import numpy as np
 import torch
 
-from detectors._shared.augmentation import AugmentationLibrary
+from detectors._shared.augmentation import load_albumentations
 from .blending import SelfBlendingGenerator, SoftBlendMask
 from .masks import FaceHullMask
 
@@ -45,7 +45,7 @@ class ProDetGenerator:
 
     def __init__(self):
         self.sbi = SelfBlendingGenerator()
-        A = AugmentationLibrary.load()
+        A = load_albumentations()
         self.transforms = A.Compose(
             [
                 A.RGBShift((-20, 20), (-20, 20), (-20, 20), p=0.3),
