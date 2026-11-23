@@ -86,53 +86,19 @@ def check_main(argv=None):
     )
     parser.add_argument("--config", type=Path)
     parser.add_argument("--env-file", type=Path)
-    source = parser.add_mutually_exclusive_group(required=True)
-    source.add_argument("--manifest", type=Path)
-    source.add_argument(
-        "--experiment", type=Path, help="Load one image batch using an experiment YAML"
-    )
+    parser.add_argument("--manifest", type=Path, required=True)
     parser.add_argument(
-        "--input", help="Named experiment input; defaults to calibration"
-    )
-    parser.add_argument(
-        "--count", type=int, help="Images to decode in manifest mode (default: 2)"
+        "--count", type=int, default=2, help="Images to decode (default: 2)"
     )
     parser.add_argument(
         "--backbone",
         help="Optional model ID for AutoImageProcessor; may download processor config",
     )
     args = parser.parse_args(argv)
-    if args.count is not None and args.count < 1:
+    if args.count < 1:
         parser.error("--count must be positive")
-    if args.experiment:
-        if args.count is not None or args.backbone:
-            parser.error(
-                "--count and --backbone apply to --manifest; experiment mode uses its YAML settings"
-            )
-        from .loader import create_experiment_loader
-
-        input_name = args.input or "calibration"
-        loader = create_experiment_loader(
-            args.experiment, input_name, config=DataConfig(args.config, args.env_file)
-        )
-        batch = next(iter(loader))
-        print(
-            json.dumps(
-                {
-                    "input": input_name,
-                    "checked": len(batch["labels"]),
-                    "batch_shape": list(batch["pixel_values"].shape),
-                    "labels": batch["labels"].tolist(),
-                    "first_sample": batch["metadata"][0],
-                },
-                indent=2,
-            )
-        )
-        return
-    if args.input:
-        parser.error("--input requires --experiment")
     dataset = ManifestDataset(args.manifest, DataConfig(args.config, args.env_file))
-    samples = [dataset[i] for i in range(min(args.count or 2, len(dataset)))]
+    samples = [dataset[i] for i in range(min(args.count, len(dataset)))]
     skipped = sum(sample is None for sample in samples)
     samples = [sample for sample in samples if sample is not None]
     report = {

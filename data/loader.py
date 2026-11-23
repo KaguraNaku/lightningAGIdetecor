@@ -4,12 +4,10 @@ from dataclasses import dataclass
 from functools import partial
 import logging
 import random
-from pathlib import Path
 
 import numpy as np
 import torch
 from torch.utils.data import DataLoader, Sampler
-import yaml
 
 
 @dataclass
@@ -199,30 +197,3 @@ def create_input_loader(
     )
     loader.media_type = media_type
     return loader
-
-
-def create_experiment_loader(
-    experiment_path, input_name, *, config=None, processor=None
-):
-    """Compatibility helper for image-processor experiments; inject other collators directly."""
-    from .config import DataConfig
-
-    config = config or DataConfig()
-    with Path(experiment_path).open() as stream:
-        experiment = yaml.safe_load(stream)
-    settings = {**experiment.get("loader", {}), **experiment["inputs"][input_name]}
-    if processor is None:
-        from transformers import AutoImageProcessor
-
-        model_id = experiment.get("backbone_id") or experiment.get("model", {}).get(
-            "backbone_id"
-        )
-        if not model_id:
-            raise ValueError("Pass processor= for experiments without a backbone_id")
-        processor = AutoImageProcessor.from_pretrained(model_id)
-    return create_input_loader(
-        settings,
-        config=config,
-        processor=processor,
-        seed=experiment.get("seed", 42),
-    )
