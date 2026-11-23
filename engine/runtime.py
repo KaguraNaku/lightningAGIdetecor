@@ -11,6 +11,7 @@ import os
 from pathlib import Path
 import random
 import tempfile
+from typing import TYPE_CHECKING
 import uuid
 
 import numpy as np
@@ -20,16 +21,20 @@ from .accelerator import resolve_device, set_tf32, validate_precision
 from .gpu_timing import GPUTimeRecorder
 from .task import ExperimentTask
 
+if TYPE_CHECKING:
+    from .distributed import DistributedRun
+
 
 @dataclass(frozen=True)
 class Runtime:
     device: torch.device
     precision: str = "fp32"
     timer: GPUTimeRecorder | None = None
+    group: "DistributedRun | None" = None
 
     @classmethod
-    def create(cls, settings, seed, *, timing=False):
-        device = resolve_device(settings["device"])
+    def create(cls, settings, seed, *, timing=False, group=None):
+        device = group.device if group is not None else resolve_device(settings["device"])
         precision = settings["precision"]
         validate_precision(device, precision)
         random.seed(seed)
@@ -38,7 +43,7 @@ class Runtime:
         if device.type == "cuda" and "allow_tf32" in settings:
             set_tf32(settings["allow_tf32"], settings["allow_tf32"])
         timer = GPUTimeRecorder(device=device) if timing else None
-        return cls(device, precision, timer)
+        return cls(device, precision, timer, group)
 
     def grad_scaler(self):
         if self.precision == "fp16" and self.device.type == "mps":

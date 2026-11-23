@@ -34,6 +34,7 @@ class LightningTask:
     encoder, maps and source statistics.
     """
     default_allow_tf32 = True
+    supports_distributed_fit = True
     model_file_fields = ("mapping_path",)
 
     @staticmethod
@@ -178,6 +179,11 @@ class LightningTask:
         from data.loader import ImageCollator
         return ImageCollator(self._get_processor())
 
+    def prepare_distributed(self, group):
+        selection = group.broadcast(self._backbone_selection if group.is_main else None)
+        self._backbone_selection = selection
+        self.encoder_revision = selection[1]
+
     def _readouts(self, batch, runtime):
         images = batch["pixel_values"].to(runtime.device, non_blocking=True)
         backbone = self._get_backbone(images.device)
@@ -185,25 +191,59 @@ class LightningTask:
             features = backbone(images)
         return {branch: values.float().cpu().numpy() for branch, values in features.items()}
 
-    def fit(self, loader, *, validation_loader=None, runtime, settings, output_dir):
-        # Manifest labels are binary. Pass a boolean mask to both numerical branches.
-        if self.readout is None:
-            accumulators = {}
-            for batch in loader:
-                with runtime.time_region("fit/mapping/batch", samples=len(batch["labels"])):
-                    features = self._readouts(batch, runtime)
-                if not accumulators:
-                    accumulators = {branch: MappingAccumulator() for branch in features}
-                labels = batch["labels"].cpu().numpy().astype(bool, copy=False)
-                for branch, accumulator in accumulators.items():
-                    accumulator.update(features[branch], labels)
+    def _fit_mappings(self, loader, runtime):
+        group = runtime.group
+        accumulators = {}
+        if group is not None:
+            backbone = self._get_backbone(runtime.device)
+            shape = (len(self.layers), backbone.width)
+            accumulators = {
+                branch: MappingAccumulator(shape) for branch in (backbone.global_branch, "mean")
+            }
+        for batch in loader:
+            with runtime.time_region("fit/mapping/batch", samples=len(batch["labels"])):
+                features = self._readouts(batch, runtime)
             if not accumulators:
-                raise ValueError("No successful source images")
-            mappings = {branch: accumulator.fit_mapping(config.PROJECTION_RANK)
-                        for branch, accumulator in accumulators.items()}
-            readout = AnalyticReadout(mappings)
-        else:
-            readout = AnalyticReadout(self.readout.mappings, self.readout.statistics.copy())
+                accumulators = {branch: MappingAccumulator() for branch in features}
+            labels = batch["labels"].cpu().numpy().astype(bool, copy=False)
+            for branch, accumulator in accumulators.items():
+                accumulator.update(features[branch], labels)
+        if not accumulators:
+            raise ValueError("No successful source images")
+
+        if group is not None:
+            for accumulator in accumulators.values():
+                counts = np.array([accumulator.n, accumulator.n_real], dtype=np.int64)
+                for array in (counts, accumulator.sum, accumulator.real_sum,
+                              accumulator.real_square, accumulator.gram):
+                    group.sum_array(array)
+                accumulator.n, accumulator.n_real = counts.tolist()
+        mappings = None
+        if group is None or group.is_main:
+            mappings = {
+                branch: accumulator.fit_mapping(config.PROJECTION_RANK)
+                for branch, accumulator in accumulators.items()
+            }
+        return mappings if group is None else group.broadcast(mappings)
+
+    def _merge_statistics(self, readout, prior, group):
+        for branch, mapping in readout.mappings.items():
+            stats = readout.statistics.get(branch)
+            if stats is None:
+                stats = SufficientStatistics.empty(len(self.layers) * mapping.rank)
+            state = stats.state_dict()
+            for value in state.values():
+                group.sum_array(value)
+            if group.is_main:
+                stats = SufficientStatistics.from_state(state)
+                readout.statistics[branch] = prior[branch].add(stats) if branch in prior else stats
+
+    def fit(self, loader, *, validation_loader=None, runtime, settings, output_dir):
+        group = runtime.group
+        primary = group is None or group.is_main
+        mappings = self._fit_mappings(loader, runtime) if self.readout is None else self.readout.mappings
+        prior = {} if self.readout is None else self.readout.statistics
+        readout = AnalyticReadout(mappings, prior.copy() if group is None else None)
 
         seen = set()
         for batch in loader:
@@ -215,24 +255,40 @@ class LightningTask:
             with runtime.time_region("fit/statistics/batch", samples=len(labels)):
                 features = self._readouts(batch, runtime)
             readout.update(features, labels)
-        if not seen:
-            raise ValueError('No successful source images')
-        with runtime.time_region("fit/ridge"):
-            audits = readout.solve(self.ridge_lambda)
+        if group is not None:
+            self._merge_statistics(readout, prior, group)
+            shard_ids = group.gather(seen)
+            if primary:
+                seen = set()
+                for ids in shard_ids:
+                    if seen.intersection(ids):
+                        raise ValueError("Distributed shards contained duplicate source IDs")
+                    seen.update(ids)
+        if primary:
+            if not seen:
+                raise ValueError('No successful source images')
+            with runtime.time_region("fit/ridge"):
+                audits = readout.solve(self.ridge_lambda)
+            self.training_ids.update(seen)
+        if group is not None:
+            readout.coefficients = group.broadcast(readout.coefficients)
         self.readout = readout
-        self.training_ids.update(seen)
         self.detector = None
         from engine.evaluate import coverage, evaluate
         output = Path(output_dir); output.mkdir(parents=True, exist_ok=True)
-        report = {'fit_kind':'linear_solve', 'epochs':None,
-                  'new_training_images':len(seen), 'cumulative_training_images':len(self.training_ids),
-                  'old_image_replay':0, 'validation_used_for_selection':False,
-                  'normal_equation_checks':audits,
-                  'coverage':coverage(loader.dataset, seen, output)}
+        report = None
+        if primary:
+            report = {'fit_kind':'linear_solve', 'epochs':None,
+                      'new_training_images':len(seen), 'cumulative_training_images':len(self.training_ids),
+                      'old_image_replay':0, 'validation_used_for_selection':False,
+                      'normal_equation_checks':audits,
+                      'coverage':coverage(loader.dataset, seen, output)}
         if validation_loader is not None:
-            report['source_validation'] = evaluate(self, validation_loader, runtime=runtime,
+            validation = evaluate(self, validation_loader, runtime=runtime,
                 settings={'threshold':0.,'video_aggregation':'mean','group_by':[]},
                 output_dir=output/'source-validation', phase="fit/validation")
+            if primary:
+                report['source_validation'] = validation
         return report
 
     @torch.inference_mode()

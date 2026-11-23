@@ -111,6 +111,11 @@ def fit(task, loader, *, validation_loader=None, runtime, config, output_dir, pr
     report = task.fit(
         loader, runtime=runtime, settings=config["fit"], output_dir=output_dir, **options
     )
+    path = Path(output_dir) / "model.pth"
+    group = runtime.group
+    if group is not None and not group.is_main:
+        group.barrier()
+        return path, None
     if config["fit"].get("ufd") is not None:
         report = {**report, "adaptation": deepcopy(task.origin["UFD_adaptation"])}
     checkpoint_id = report.pop("training_checkpoint_id", None)
@@ -127,8 +132,9 @@ def fit(task, loader, *, validation_loader=None, runtime, config, output_dir, pr
     }
     if checkpoint_id is not None:
         checkpoint["training_state"] = {"id": checkpoint_id, "epoch": report["best_epoch"]}
-    path = Path(output_dir) / "model.pth"
     atomic_save(path, checkpoint, torch_format=True)
+    if group is not None:
+        group.barrier()
     return path, report
 
 

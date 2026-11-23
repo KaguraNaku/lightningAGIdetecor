@@ -45,6 +45,10 @@ class SufficientStatistics:
     sample_count: int
 
     @classmethod
+    def empty(cls, width):
+        return cls(np.zeros((width, width)), np.zeros(width), np.zeros(width), 0.0, 0)
+
+    @classmethod
     def from_rows(cls, z, y):
         z, y = np.asarray(z, dtype=np.float64), np.asarray(y)
         if (z.ndim != 2 or y.shape != (len(z),)
@@ -153,9 +157,18 @@ class SpectralMapping:
 
 class MappingAccumulator:
     """Raw moments for a streaming, two-pass source mapping fit."""
-    def __init__(self):
+    def __init__(self, shape=None):
         self.n = self.n_real = 0
         self.sum = self.real_sum = self.real_square = self.gram = None
+        if shape is not None:
+            self._allocate(shape)
+
+    def _allocate(self, shape):
+        layers, width = shape
+        self.sum = np.zeros(shape)
+        self.real_sum = np.zeros(shape)
+        self.real_square = np.zeros(shape)
+        self.gram = np.zeros((layers, width, width))
 
     def update(self, x, y):
         x, y = np.asarray(x, dtype=np.float64), np.asarray(y)
@@ -163,9 +176,7 @@ class MappingAccumulator:
                 or (y.dtype != np.bool_ and not np.isin(y, [0, 1]).all())):
             raise ValueError("Aligned binary readouts required")
         if self.sum is None:
-            self.sum = np.zeros(x.shape[1:]); self.real_sum = np.zeros_like(self.sum)
-            self.real_square = np.zeros_like(self.sum)
-            self.gram = np.zeros((x.shape[1], x.shape[2], x.shape[2]))
+            self._allocate(x.shape[1:])
         if x.shape[1:] != self.sum.shape:
             raise ValueError("Readout shape changed during mapping fit")
         real = x[y == 0]

@@ -7,7 +7,7 @@ import random
 
 import numpy as np
 import torch
-from torch.utils.data import DataLoader, Sampler
+from torch.utils.data import DataLoader, RandomSampler, Sampler, SequentialSampler
 
 
 @dataclass
@@ -84,6 +84,26 @@ class ImageDataLoader(DataLoader):
                 yield batch
 
 
+class ShardSampler(Sampler):
+    """Take a contiguous share of a common sample order without padding."""
+
+    def __init__(self, sampler, rank, world_size):
+        self.sampler = sampler
+        size, remainder = divmod(len(sampler), world_size)
+        self.start = rank * size + min(rank, remainder)
+        self.stop = self.start + size + (rank < remainder)
+
+    def __len__(self):
+        return self.stop - self.start
+
+    def __iter__(self):
+        if isinstance(self.sampler, SequentialSampler):
+            return iter(range(self.start, self.stop))
+        # Consume the entire order so every rank advances its sampler RNG equally.
+        order = list(self.sampler)
+        return iter(order[self.start:self.stop])
+
+
 def create_loader(
     dataset,
     processor=None,
@@ -97,6 +117,7 @@ def create_loader(
     pin_memory=False,
     prefetch_factor=2,
     persistent_workers=None,
+    shard=None,
 ):
     """Use ordinary row sampling unless an explicit method-owned sampler is supplied."""
     if (processor is None) == (collate_fn is None):
@@ -105,12 +126,23 @@ def create_loader(
     records = getattr(dataset, "records", [])
     if sampler is not None and shuffle:
         raise ValueError("Supply either an explicit sampler or shuffle=True")
+    sampler_generator = (
+        torch.Generator().manual_seed(seed) if shard is not None else generator
+    )
     if (
         sampler is None
         and shuffle
         and any(record.storage == "parquet" for record in records)
     ):
-        sampler = RowGroupSampler(records, generator)
+        sampler = RowGroupSampler(records, sampler_generator)
+        shuffle = False
+    if shard is not None:
+        if sampler is None:
+            sampler = (
+                RandomSampler(dataset, generator=sampler_generator)
+                if shuffle else SequentialSampler(dataset)
+            )
+        sampler = ShardSampler(sampler, *shard)
         shuffle = False
     return ImageDataLoader(
         dataset,
@@ -163,6 +195,7 @@ def create_input_loader(
     seed=42,
     dataset_adapter=None,
     sampler_factory=None,
+    shard=None,
 ):
     dataset = create_input_dataset(settings, config)
     media_type = getattr(dataset, "media_type", None)
@@ -193,7 +226,7 @@ def create_input_loader(
         else None
     )
     loader = create_loader(
-        dataset, processor, collate_fn=collate_fn, sampler=sampler, seed=seed, **options
+        dataset, processor, collate_fn=collate_fn, sampler=sampler, seed=seed, shard=shard, **options
     )
     loader.media_type = media_type
     return loader

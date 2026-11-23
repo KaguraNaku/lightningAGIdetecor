@@ -27,28 +27,9 @@ def execute(
     timing=False,
     public=False,
 ):
-    import torch
-    import yaml
+    from .config import read_experiment
+    from .distributed import DistributedRun
 
-    from data.config import DataConfig
-    from data.loader import create_input_loader
-    from data.manifest import sha256
-
-    from .accelerator import set_tf32, tf32_flags
-    from .config import input_settings, read_experiment
-    from .evaluate import evaluate
-    from .fit import CheckpointReference, create_training_task, fit, restore
-    from .summary import summary_rows
-    from .runtime import (
-        Runtime,
-        release_cpu_memory,
-        atomic_save,
-        configure_logging,
-        collator_for,
-        dataset_adapter_for,
-        sampler_factory_for,
-        create_run_dir,
-    )
     config = read_experiment(
         config_path, require_fit=command != "evaluate", env_file=env_file, model_name=model_name,
         training_input=training_input, validation_input=validation_input,
@@ -61,9 +42,51 @@ def execute(
         raise ValueError(f"Unknown command: {command}")
     if command == "evaluate" and checkpoint is None:
         raise ValueError("evaluate requires --checkpoint")
-    directory = create_run_dir(config["runtime"]["output_dir"], command)
+    with DistributedRun.launch(config["runtime"]["device"]) as group:
+        directory = _execute(
+            command, config_path, config, checkpoint=checkpoint, datasets=datasets,
+            env_file=env_file, model_name=model_name, timing=timing, group=group,
+        )
+        if group is not None:
+            group.barrier()
+        return directory
+
+
+def _execute(command, config_path, config, *, checkpoint, datasets, env_file, model_name, timing, group):
+    import torch
+    import yaml
+
+    from data.config import DataConfig
+    from data.loader import create_input_loader
+    from data.manifest import sha256
+
+    from .accelerator import set_tf32, tf32_flags
+    from .config import input_settings
+    from .evaluate import evaluate
+    from .fit import CheckpointReference, create_training_task, fit, restore
+    from .runtime import (
+        Runtime,
+        atomic_save,
+        collator_for,
+        configure_logging,
+        create_run_dir,
+        dataset_adapter_for,
+        release_cpu_memory,
+        sampler_factory_for,
+    )
+    from .summary import summary_rows
+
+    primary = group is None or group.is_main
+    directory = create_run_dir(config["runtime"]["output_dir"], command) if primary else None
+    if group is not None:
+        directory = Path(group.broadcast(str(directory) if primary else None))
+    shard = (group.rank, group.world_size) if group is not None else None
+    worker_dir = directory
+    if not primary:
+        worker_dir = directory / ".workers" / str(group.rank)
+        worker_dir.mkdir(parents=True)
     root_logger, handlers, previous_level = configure_logging(
-        directory, config["runtime"]["log_level"]
+        worker_dir, config["runtime"]["log_level"],
     )
     status = {
         "status": "running",
@@ -74,14 +97,16 @@ def execute(
         "seed": config["seed"],
         "inputs": {},
     }
-    atomic_save(directory / "run.json", status)
+    if group is not None:
+        status["world_size"] = group.world_size
+    if primary:
+        atomic_save(directory / "run.json", status)
     previous_tf32 = None
     runtime = None
     try:
-        (directory / "resolved-config.yaml").write_text(
-            yaml.safe_dump(config, sort_keys=False)
-        )
-        runtime = Runtime.create(config["runtime"], config["seed"], timing=timing)
+        if primary:
+            (directory / "resolved-config.yaml").write_text(yaml.safe_dump(config, sort_keys=False))
+        runtime = Runtime.create(config["runtime"], config["seed"], timing=timing, group=group)
         data = DataConfig.for_experiment(config_path, config, registry=datasets, env_file=env_file)
         status["dataset_registry_sha256"] = sha256(data.path)
         logger.info("Run directory: %s", directory)
@@ -95,17 +120,21 @@ def execute(
             if model_name is not None:
                 ModelRegistry.select(model_name, config["model"])
             config["evaluation"]["threshold"] = saved["score"]["threshold"]
-            status["checkpoint"] = CheckpointReference(checkpoint).state_dict()
+            if primary:
+                status["checkpoint"] = CheckpointReference(checkpoint).state_dict()
         else:
             task = create_training_task(config)
+            if group is not None and not getattr(task, "supports_distributed_fit", False):
+                raise ValueError("The selected detector does not support distributed fitting")
+        if group is not None and (prepare := getattr(task, "prepare_distributed", None)) is not None:
+            prepare(group)
         default_tf32 = getattr(task, "default_allow_tf32", None)
         if runtime.device.type == "cuda" and "allow_tf32" not in config["runtime"] and default_tf32 is not None:
             previous_tf32 = tf32_flags()
             set_tf32(default_tf32, default_tf32)
             config["runtime"]["allow_tf32"] = default_tf32
-        (directory / "resolved-config.yaml").write_text(
-            yaml.safe_dump(config, sort_keys=False)
-        )
+        if primary:
+            (directory / "resolved-config.yaml").write_text(yaml.safe_dump(config, sort_keys=False))
 
         def make_loader(name, stage="evaluation"):
             loader = create_input_loader(
@@ -115,16 +144,18 @@ def execute(
                 dataset_adapter=dataset_adapter_for(task, stage),
                 sampler_factory=sampler_factory_for(task, stage),
                 seed=config["seed"],
+                shard=shard,
             )
-            status["inputs"][name] = {
-                "manifest_sha256": sha256(loader.dataset.manifest_path),
-                "dataset": loader.dataset.header["dataset"],
-                "split": loader.dataset.header["split"],
-                "media_type": loader.media_type,
-                "sampling": loader.dataset.header["sampling"],
-                "expected": len(loader.dataset),
-            }
-            atomic_save(directory / "run.json", status)
+            if primary:
+                status["inputs"][name] = {
+                    "manifest_sha256": sha256(loader.dataset.manifest_path),
+                    "dataset": loader.dataset.header["dataset"],
+                    "split": loader.dataset.header["split"],
+                    "media_type": loader.media_type,
+                    "sampling": loader.dataset.header["sampling"],
+                    "expected": len(loader.dataset),
+                }
+                atomic_save(directory / "run.json", status)
             return loader
 
         if command != "evaluate":
@@ -136,7 +167,7 @@ def execute(
                     make_loader(validation_name, "validation") if validation_name else None
                 )
                 fit_dir = directory / "fit"
-                fit_dir.mkdir()
+                fit_dir.mkdir(exist_ok=True)
                 path, status["fit"] = fit(
                     task,
                     loader,
@@ -147,7 +178,8 @@ def execute(
                     provenance={"seed": config["seed"], "inputs": dict(status["inputs"])},
                 )
             del loader, validation_loader
-            status["checkpoint"] = {"path": str(path), "sha256": sha256(path)}
+            if primary:
+                status["checkpoint"] = {"path": str(path), "sha256": sha256(path)}
             if command == "run":
                 del task
                 release_cpu_memory()
@@ -157,7 +189,7 @@ def execute(
             phase = f"evaluate/{name}"
             with runtime.time_region(phase):
                 loader = make_loader(name)
-                reports[name] = evaluate(
+                report = evaluate(
                     task,
                     loader,
                     runtime=runtime,
@@ -165,6 +197,8 @@ def execute(
                     output_dir=directory / name,
                     phase=phase,
                 )
+                if primary:
+                    reports[name] = report
             del loader
         if reports:
             temporary = directory / "summary.partial.csv"
@@ -179,7 +213,7 @@ def execute(
             status="complete",
             evaluation={name: report["coverage"] for name, report in reports.items()},
         )
-        return directory
+        return directory if primary else None
     except BaseException as error:
         status.update(status="failed", error=f"{type(error).__name__}: {error}")
         logger.exception("Experiment failed")
@@ -187,11 +221,14 @@ def execute(
     finally:
         if previous_tf32 is not None:
             set_tf32(*previous_tf32)
-        status["finished_at"] = datetime.now(timezone.utc).isoformat()
-        atomic_save(directory / "run.json", status)
+        if primary:
+            status["finished_at"] = datetime.now(timezone.utc).isoformat()
+            atomic_save(directory / "run.json", status)
         if runtime is not None and runtime.timer is not None:
             runtime.timer.metadata.update(command=command, status=status["status"], precision=runtime.precision)
-            runtime.timer.write(directory / "timing.json")
+            if group is not None:
+                runtime.timer.metadata.update(rank=group.rank, world_size=group.world_size)
+            runtime.timer.write(worker_dir / "timing.json")
         for handler in handlers:
             root_logger.removeHandler(handler)
             handler.close()
@@ -307,7 +344,8 @@ def main(argv=None):
         )
     except Exception as error:
         parser.exit(1, f"{type(error).__name__}: {error}\n")
-    print(directory)
+    if directory is not None:
+        print(directory)
 
 
 if __name__ == "__main__":
