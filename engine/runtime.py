@@ -57,26 +57,9 @@ class Runtime:
         return torch.autocast(self.device.type, dtype=dtype)
 
 
-def unpack_task_state(model, state):
-    """Read a legacy UFD envelope as its native detector and task state."""
-    from .models import ModelRegistry
-
-    if model.get("factory") not in ModelRegistry.LEGACY_UFD_FACTORIES:
-        return model, state
-    if not isinstance(state, dict) or state.get("version") != 1:
-        raise ValueError("Expected a saved UFD task state. Use the fit command to initialize training.")
-    base = state["base_model"]
-    method = ModelRegistry.method_for(base)
-    if (method not in ModelRegistry.NATIVE_CLASSES
-            or ModelRegistry.resolve_factory(base["factory"]) != ModelRegistry.get(method).factory):
-        raise ValueError("Legacy UFD state must contain a native detector")
-    return base, state["base_task"]
-
-
 def create_task(model, *, state=None) -> ExperimentTask:
     from .models import ModelRegistry
 
-    model, state = unpack_task_state(model, state)
     module, name = ModelRegistry.resolve_factory(model["factory"]).split(":", 1)
     factory = getattr(import_module(module), name)
     settings = {k: v for k, v in model.items() if k != "factory"}

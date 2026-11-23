@@ -2,7 +2,6 @@
 from contextlib import contextmanager, nullcontext
 from functools import wraps
 import hashlib
-import importlib.util
 import json
 from pathlib import Path
 import platform
@@ -21,24 +20,12 @@ class FitTiming:
             return
         if spec is None or spec is True:
             spec = {}
-        if not isinstance(spec, dict):
-            raise TypeError("gpu_timing must be a mapping or boolean")
+        if not isinstance(spec, dict) or spec.keys() - {"metadata"}:
+            raise ValueError("gpu_timing accepts a boolean or a mapping with metadata")
         import torch
-        if 'module' in spec:
-            path = Path(spec['module'])
-            expected = spec.get('sha256')
-            if not expected:
-                raise ValueError('Historical timing module requires sha256')
-            with path.open('rb') as stream:
-                if hashlib.file_digest(stream, 'sha256').hexdigest() != expected:
-                    raise ValueError('Shared timing module checksum changed')
-            definition = importlib.util.spec_from_file_location('authorized_gpu_timing', path)
-            module = importlib.util.module_from_spec(definition)
-            definition.loader.exec_module(module)
-            recorder = module.GPUTimeRecorder
-        else:
-            from .gpu_timing import GPUTimeRecorder
-            recorder = GPUTimeRecorder
+
+        from .gpu_timing import GPUTimeRecorder
+
         metadata = {**spec.get('metadata', {}), 'Python_version': platform.python_version(),
             'torch_version': str(torch.__version__), 'CUDA_version': torch.version.cuda,
             'CPU_threads': torch.get_num_threads(), 'precision': runtime.precision,
@@ -57,7 +44,7 @@ class FitTiming:
             metadata['GPU_uuid_and_name'] = gpu
             metadata['gpu_uuid'], metadata['gpu_name'] = [x.strip() for x in gpu.split(',', 1)]
             metadata['peak_reset_scope'] = 'This fit entry;includes model-to-device and restored optimizer allocation'
-        self.meter = recorder(device=str(runtime.device), warmup_batches=3, metadata=metadata)
+        self.meter = GPUTimeRecorder(device=str(runtime.device), warmup_batches=3, metadata=metadata)
 
     @classmethod
     def _manifest_sha(cls, loader):

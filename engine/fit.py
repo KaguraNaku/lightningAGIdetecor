@@ -9,7 +9,7 @@ import torch
 
 from .models import ModelRegistry
 from .resources import resolve_asset
-from .runtime import atomic_save, create_task, unpack_task_state
+from .runtime import atomic_save, create_task
 
 
 def read_checkpoint(reference, *, require_checksum=False, encoding=None):
@@ -53,44 +53,18 @@ def _initial_ufd_detector(model, policy, method):
     return task, model, adaptation
 
 
-def _continue_ufd_detector(reference, expected_factory):
-    saved = read_checkpoint(reference, require_checksum=True)
-    declaration, saved_state = saved["model"], saved["task"]
-    legacy = ModelRegistry.LEGACY_UFD_FACTORIES.get(declaration["factory"])
-    if legacy == "continual":
-        # A historical first-stage import changed the factory but retained its
-        # original FF++ to UFD adaptation receipt.
-        adaptation = saved_state["adaptation"]
-    elif legacy is None and saved.get("fit_report", {}).get("continuation"):
-        adaptation = saved_state.get("origin", {}).get("UFD_adaptation", {})
-        if adaptation.get("regime") != "sequential_no_replay":
-            raise ValueError("Previous selected model lacks its UFD continuation provenance")
-    else:
-        raise ValueError("A later stage requires the previous selected continual model")
-    model, state = unpack_task_state(declaration, saved_state)
-    if ModelRegistry.resolve_factory(model["factory"]) != expected_factory:
-        raise ValueError("Previous stage model belongs to a different detector")
-    return create_task(model, state=state), model, deepcopy(adaptation)
-
-
 def create_training_task(config):
-    """Use the native task for every fit and apply UFD settings at the engine boundary."""
     model, settings = config["model"], config["fit"]
+    if "continuation" in settings:
+        raise ValueError("Use --checkpoint to resume training")
     if settings.get("checkpoint") is not None:
         return _resume_training_task(config)
-    legacy = ModelRegistry.LEGACY_UFD_FACTORIES.get(model["factory"])
     policy = settings.get("ufd")
-    if legacy is None and policy is None:
+    if policy is None:
         return create_task(model)
-    if legacy is not None:
-        if policy is not None:
-            raise ValueError("Choose either fit.ufd or a legacy UFD model declaration")
-        ModelRegistry.validate_factory(model)
-        policy = {key: model[key] for key in (
-            "regime", "parent_checkpoint", "parent_sha256", "previous_stage_model",
-        ) if key in model}
-        model = model.get("base_model") or {"factory": ModelRegistry.get(model["method"]).factory}
-    elif config["inputs"][settings["input"]]["dataset"] != "UniversalFakeDetect":
+    if set(policy) - {"regime", "parent_checkpoint", "parent_sha256"}:
+        raise ValueError("fit.ufd accepts only regime, parent_checkpoint and parent_sha256")
+    if config["inputs"][settings["input"]]["dataset"] != "UniversalFakeDetect":
         raise ValueError("fit.ufd requires a UniversalFakeDetect training input")
 
     method = ModelRegistry.method_for(model)
@@ -99,33 +73,13 @@ def create_training_task(config):
     factory = ModelRegistry.get(method).factory
     if ModelRegistry.resolve_factory(model["factory"]) != factory:
         raise ValueError("UFD fitting requires the selected detector's native factory")
-    model = {**model, "factory": factory}
-    previous = policy.get("previous_stage_model")
     parent = policy.get("parent_checkpoint")
-    stage = settings.get("continuation")
-    if legacy == "continual" or (legacy is None and stage is not None):
-        if not stage or ((stage["stage_index"] > 0) != bool(previous)):
-            raise ValueError("Continual fitting requires aligned explicit stage and previous-model references")
-        if bool(previous) == bool(parent):
-            raise ValueError("Stage zero uses an FF++ parent; later stages use the previous UFD model")
-    elif previous:
-        raise ValueError("A previous UFD model requires fit.continuation")
-    elif not legacy and policy.get("regime") != ("FFpp_to_UFD" if parent else "fresh_UFD"):
+    if policy.get("regime") != ("FFpp_to_UFD" if parent else "fresh_UFD"):
         raise ValueError("UFD regime must match the declared checkpoint initialization")
 
-    if previous:
-        task, model, adaptation = _continue_ufd_detector(previous, factory)
-    else:
-        task, model, adaptation = _initial_ufd_detector(model, policy, method)
-    if stage is not None:
-        adaptation.update(
-            regime="sequential_no_replay",
-            optimizer="Native optimizer initialized once at FF++→UFD;all state restored from each selected prior epoch",
-            worker_rng="Nonpersistent workers restart at epoch boundaries from carried loader generator",
-        )
+    task, model, adaptation = _initial_ufd_detector({**model, "factory": factory}, policy, method)
     task.origin["UFD_adaptation"] = adaptation
-    config["model"] = {**model, "factory": factory}
-    settings["ufd"] = policy
+    config["model"] = model
     return task
 
 
@@ -140,8 +94,6 @@ def _resume_training_task(config):
             reference["dataset"] = configured["dataset"]
         config["model"] = {"factory": model["factory"], "checkpoint": reference}
         return create_task(config["model"])
-    if settings.get("continuation") is not None:
-        raise ValueError("Choose --checkpoint or the explicit fit.continuation settings")
     saved = read_model_checkpoint(path)
     if selected != ModelRegistry.method_for(saved["model"]):
         raise ValueError("Checkpoint belongs to a different detector")
@@ -152,8 +104,8 @@ def _resume_training_task(config):
                      if item.get("split") == "train"}
     if prior_sources and prior_sources != {source}:
         raise ValueError("Resume on the same dataset. Use fit.ufd for FF++ to UFD initialization.")
-    saved_model, state = unpack_task_state(saved["model"], saved["task"])
-    task = create_task(saved_model, state=state)
+    saved_model = saved["model"]
+    task = create_task(saved_model, state=saved["task"])
     if (bind := getattr(task, "bind_resume_input", None)) is not None:
         saved_model = {**saved_model, **bind(model)}
     if "UFD_adaptation" not in task.origin:

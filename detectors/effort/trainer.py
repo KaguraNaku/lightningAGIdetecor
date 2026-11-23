@@ -10,7 +10,7 @@ import torch
 from torch.nn import functional as F
 
 from data.manifest import sha256
-from engine.continuity import StageContinuation, TrainingSnapshot
+from engine.training_state import TrainingSnapshot
 from engine.evaluate import coverage, evaluate
 from engine.runtime import atomic_save
 from engine.training_timing import timed_fit, training_region, host_region, validation_meter
@@ -88,9 +88,7 @@ class EffortTrainer:
         )
         scaler = torch.amp.GradScaler("cuda", enabled=runtime.precision == "fp16")
         training_snapshot = TrainingSnapshot(settings, loader, validation_loader, runtime)
-        continuation = StageContinuation(settings, loader, validation_loader, runtime)
         training_snapshot.restore(self, optimizer, scaler)
-        continuation.restore(self, optimizer, scaler)
         root = Path(output_dir)
         root.mkdir(parents=True, exist_ok=True)
         protocol = {
@@ -200,7 +198,6 @@ class EffortTrainer:
                 **training_snapshot.capture(self, optimizer, scaler),
                 "epoch": epoch, "record": record, "protocol": protocol,
             }
-            continuation.snapshot(checkpoint, epoch, train_dir)
             with host_region(self, "checkpoint"):
                 atomic_save(root / "last.pth", checkpoint, torch_format=True)
                 if improved:
@@ -221,5 +218,4 @@ class EffortTrainer:
             "stopped_early": len(history) < epochs, "history": "history.json",
             "selection": selection,
             "train": history[-1]["train"],
-            **({"continuation": continuation.summary(saved)} if continuation.enabled else {}),
         }

@@ -18,7 +18,7 @@ import torch
 from torch import nn
 
 from data.manifest import sha256
-from engine.continuity import StageContinuation, TrainingSnapshot
+from engine.training_state import TrainingSnapshot
 from engine.evaluate import coverage, evaluate
 from engine.runtime import atomic_save
 from engine.training_timing import timed_fit, training_region, host_region, validation_meter
@@ -264,15 +264,13 @@ class ImageClassificationTrainer:
         self.model.to(runtime.device)
         self.objective.to(runtime.device)
         checkpoint = TrainingSnapshot(settings, loader, validation_loader, runtime)
-        continuation = StageContinuation(settings, loader, validation_loader, runtime)
-        parent = checkpoint.parent or continuation.parent
+        parent = checkpoint.parent
         if parent is not None and (prepare := getattr(self, "prepare_resume", None)) is not None:
             prepare(parent)
         del parent
         optimizer = self.build_optimizer(settings)
         scaler = torch.amp.GradScaler("cuda", enabled=runtime.precision == "fp16")
         checkpoint.restore(self, optimizer, scaler)
-        continuation.restore(self, optimizer, scaler)
         output = Path(output_dir)
         output.mkdir(parents=True, exist_ok=True)
         protocol = {
@@ -373,7 +371,6 @@ class ImageClassificationTrainer:
                 "record": record,
                 "protocol": protocol,
             }
-            continuation.snapshot(snapshot, epoch, training)
             with host_region(self, "checkpoint"):
                 atomic_save(output / "last.pth", snapshot, torch_format=True)
                 if improved:
@@ -402,5 +399,4 @@ class ImageClassificationTrainer:
             "stopped_early": len(history) < epochs,
             "history": "history.json",
             "train": history[-1]["train"],
-            **({"continuation": continuation.summary(selected)} if continuation.enabled else {}),
         }
