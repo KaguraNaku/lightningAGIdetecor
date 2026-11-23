@@ -213,9 +213,8 @@ def read_experiment(path, *, require_fit=True, variables=None, env_file=None,
         raise ValueError("Invalid log_level")
     resources = ResourceResolver(Path(path).resolve().parent, variables=variables, env_file=env_file)
     for item in inputs.values():
-        # Registry variables (including its MANIFEST_ROOT default) are expanded
-        # when the selected dataset is opened; simple relative paths can be
-        # anchored now without eagerly opening unused datasets.
+        # Expand variables when opening a selected input. Anchor plain relative
+        # paths here so they resolve against the experiment config.
         if "$" not in item["manifest"]:
             item["manifest"] = str(resources.path(item["manifest"], must_exist=False))
     if require_fit:

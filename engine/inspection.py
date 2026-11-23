@@ -24,8 +24,7 @@ class ExperimentInspector:
         audits, source_plans, inputs = {}, {}, {}
         for name in selected:
             item = config["inputs"][name]
-            value = item["manifest"].replace("${MANIFEST_ROOT}", str(data.manifest_dir()))
-            path = Path(data.expand(value)).expanduser()
+            path = data.manifest_path(item["manifest"])
             header, rows = read_manifest(path)
             if (header["dataset"], header["split"]) != (item["dataset"], item["split"]):
                 raise ValueError("Configured input differs from its frozen manifest")

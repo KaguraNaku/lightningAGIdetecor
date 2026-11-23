@@ -140,10 +140,7 @@ def create_input_dataset(settings, config):
     """Resolve a manifest input without knowing any model or experiment format."""
     from .dataset import ManifestDataset
 
-    value = settings["manifest"].replace("${MANIFEST_ROOT}", str(config.manifest_dir()))
-    path = Path(config.expand(value)).expanduser()
-    if not path.is_absolute():
-        raise ValueError("Experiment manifest path must be absolute")
+    path = config.manifest_path(settings["manifest"])
     dataset = ManifestDataset(
         path,
         config,

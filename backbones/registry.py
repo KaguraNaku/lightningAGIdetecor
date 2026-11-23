@@ -4,6 +4,23 @@ from collections.abc import MutableMapping
 from importlib import import_module
 
 
+_BUILTIN_LOADERS = {
+    # Detector-specific backbones.
+    ("xception", "vision"): ("detectors.xception.backbone", "load_xception"),
+    ("ucf_xception", "vision"): ("detectors.ucf.backbone", "load_ucf_xception"),
+    ("efficientnetb4", "vision"): ("detectors.prodet.backbone", "load_efficientnetb4"),
+    ("gend_clip", "vision"): ("detectors.gend.encoder", "load_gend_clip"),
+    ("forada_clip", "full"): ("detectors.forada.clip", "load_forada_clip"),
+    # Shared foundation models.
+    ("clip", "vision"): ("models.clip", "load_clip_vision"),
+    ("clip_vision_model", "vision"): ("models.clip", "load_clip_vision"),
+    ("dinov2", "vision"): ("models.dinov2", "load_dinov2_vision"),
+    ("siglip", "vision"): ("models.siglip", "load_siglip_vision"),
+    ("siglip_vision_model", "vision"): ("models.siglip", "load_siglip_vision"),
+    ("vit", "vision"): ("models.vit", "load_vit_vision"),
+}
+
+
 class BackboneRegistry(MutableMapping):
     """Own loader declarations without importing or constructing model backends.
 
@@ -53,21 +70,4 @@ class BackboneRegistry(MutableMapping):
         return getattr(importer(module_name), function_name)
 
 
-LOADERS = BackboneRegistry({
-    ("xception", "vision"): ("detectors.xception.backbone", "load_xception"),
-    ("ucf_xception", "vision"): ("detectors.ucf.backbone", "load_ucf_xception"),
-    ("efficientnetb4", "vision"): ("detectors.prodet.backbone", "load_efficientnetb4"),
-    ("gend_clip", "vision"): ("detectors.gend.encoder", "load_gend_clip"),
-    ("forada_clip", "full"): ("detectors.forada.clip", "load_forada_clip"),
-    ("clip", "vision"): ("models.clip", "load_clip_vision"),
-    ("clip_vision_model", "vision"): ("models.clip", "load_clip_vision"),
-    ("dinov2", "vision"): ("models.dinov2", "load_dinov2_vision"),
-    ("siglip", "vision"): ("models.siglip", "load_siglip_vision"),
-    ("siglip_vision_model", "vision"): ("models.siglip", "load_siglip_vision"),
-    ("vit", "vision"): ("models.vit", "load_vit_vision"),
-})
-
-
-def register_backbone(model_type, component):
-    """Compatibility decorator backed by the common registry object."""
-    return LOADERS.register(model_type, component)
+LOADERS = BackboneRegistry(_BUILTIN_LOADERS)

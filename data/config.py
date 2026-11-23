@@ -76,11 +76,11 @@ class DataConfig:
         settings["root"] = root.resolve()
         return settings
 
-    def manifest_dir(self) -> Path:
-        value = self.variables.get(
-            "MANIFEST_ROOT", "~/.local/share/lightning-remake/manifests"
-        )
+    def manifest_path(self, value: str) -> Path:
         path = Path(self.expand(value)).expanduser()
         if not path.is_absolute():
-            raise ValueError("MANIFEST_ROOT must be absolute")
+            raise ValueError(f"Manifest path must be absolute: {value}")
         return path
+
+    def manifest_dir(self) -> Path:
+        return self.manifest_path("${MANIFEST_ROOT}")
